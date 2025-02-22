@@ -76,60 +76,6 @@ def fields_name_format(config):
     print("[END [FINISHED 🏁]] Formateo de nombres completado.\n", flush=True)
     return df_result
 
-# ----------------------------------------------------------------------------
-# GSheet_to_df()
-# ----------------------------------------------------------------------------
-def GSheet_to_df(params: dict) -> pd.DataFrame:
-    """
-    Extrae datos desde una hoja de cálculo de Google Sheets y los convierte en un DataFrame.
-    
-    Parámetros en params:
-      - spreadsheet_id (str): URL o ID de la hoja de cálculo.
-      - worksheet_name (str): Nombre de la hoja dentro del documento.
-      - json_keyfile (str, opcional): Ruta al JSON de credenciales (solo necesario en entornos locales).
-    
-    Retorna:
-        pd.DataFrame: DataFrame con los datos extraídos.
-    """
-    print("[START 🚀] Iniciando extracción de datos de Google Sheets...", flush=True)
-    import gspread
-    from google.auth.exceptions import DefaultCredentialsError
-    from google.auth import default
-    from oauth2client.service_account import ServiceAccountCredentials
-
-    spreadsheet_id_str = params.get("spreadsheet_id")
-    worksheet_name_str = params.get("worksheet_name")
-    json_keyfile_str = params.get("json_keyfile")
-
-    if not spreadsheet_id_str or not worksheet_name_str:
-        raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'spreadsheet_id' o 'worksheet_name'.")
-
-    try:
-        is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
-        if is_gcp:
-            print("[AUTHENTICATION [SUCCESS ✅]] Entorno GCP detectado. Usando autenticación automática.", flush=True)
-            creds, _ = default()
-        else:
-            if not json_keyfile_str:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Autenticando con JSON de credenciales.", flush=True)
-            scope_list = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-            creds = ServiceAccountCredentials.from_json_keyfile_name(json_keyfile_str, scope_list)
-        client = gspread.authorize(creds)
-        spreadsheet = client.open_by_url(spreadsheet_id_str)
-        worksheet = spreadsheet.worksheet(worksheet_name_str)
-        data_list = worksheet.get_all_records()
-        df = pd.DataFrame(data_list)
-        print(f"[EXTRACTION [SUCCESS ✅]] Datos extraídos con éxito de '{worksheet_name_str}'.\n", flush=True)
-        return df
-    except FileNotFoundError:
-        raise FileNotFoundError(f"[EXTRACTION [ERROR ❌]] Archivo JSON no encontrado: {json_keyfile_str}")
-    except DefaultCredentialsError:
-        raise ValueError("[AUTHENTICATION [ERROR ❌]] Error en la autenticación. Verifica las credenciales.")
-    except gspread.exceptions.SpreadsheetNotFound:
-        raise ValueError(f"[EXTRACTION [ERROR ❌]] No se encontró la hoja de cálculo: {spreadsheet_id_str}")
-
-
 
 # ----------------------------------------------------------------------------
 # table_various_sources_to_DF()
