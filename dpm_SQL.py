@@ -1,5 +1,5 @@
 # __________________________________________________________________________________________________________________________________________________________
-# Repositorio de funciones modificado
+# Repositorio de funciones
 # __________________________________________________________________________________________________________________________________________________________
 
 from google.cloud import bigquery
@@ -114,67 +114,6 @@ def DF_to_GBQ(params: dict) -> None:
     _cargar_dataframe(client, df, destination_table, if_exists)
 
 # ----------------------------------------------------------------------------
-# fields_name_format()
-# ----------------------------------------------------------------------------
-def fields_name_format(config):
-    """
-    Formatea nombres de campos de datos según configuraciones específicas.
-    
-    Parámetros en config:
-      - fields_name_raw_list (list): Lista de nombres de campos.
-      - formato_final (str, opcional): 'CamelCase', 'snake_case', 'Sentence case', o None.
-      - reemplazos (dict, opcional): Diccionario de términos a reemplazar.
-      - siglas (list, opcional): Lista de siglas que deben mantenerse en mayúsculas.
-    
-    Retorna:
-        pd.DataFrame: DataFrame con columnas 'Campo Original' y 'Campo Formateado'.
-    """
-    print("[START 🚀] Iniciando formateo de nombres de campos...", flush=True)
-    
-    def aplicar_reemplazos(field, reemplazos):
-        for key, value in sorted(reemplazos.items(), key=lambda x: -len(x[0])):
-            if key in field:
-                field = field.replace(key, value)
-        return field
-
-    def formatear_campo(field, formato, siglas):
-        if formato is None or formato is False:
-            return field
-        words = [w for w in re.split(r'[_\-\s]+', field) if w]
-        if formato == 'CamelCase':
-            return ''.join(
-                word.upper() if word.upper() in siglas
-                else word.capitalize() if idx == 0
-                else word.lower()
-                for idx, word in enumerate(words)
-            )
-        elif formato == 'snake_case':
-            return '_'.join(
-                word.upper() if word.upper() in siglas
-                else word.lower() for word in words
-            )
-        elif formato == 'Sentence case':
-            return ' '.join(
-                word.upper() if word.upper() in siglas
-                else word.capitalize() if idx == 0
-                else word.lower()
-                for idx, word in enumerate(words)
-            )
-        else:
-            raise ValueError(f"Formato '{formato}' no soportado.")
-    
-    resultado = []
-    for field in config.get('fields_name_raw_list', []):
-        original_field = field
-        field = aplicar_reemplazos(field, config.get('reemplazos', {}))
-        formatted_field = formatear_campo(field, config.get('formato_final', 'CamelCase'), [sig.upper() for sig in config.get('siglas', [])])
-        resultado.append({'Campo Original': original_field, 'Campo Formateado': formatted_field})
-    
-    df_result = pd.DataFrame(resultado)
-    print("[END [FINISHED 🏁]] Formateo de nombres completado.\n", flush=True)
-    return df_result
-
-# ----------------------------------------------------------------------------
 # GBQ_execute_SQL()
 # ----------------------------------------------------------------------------
 def GBQ_execute_SQL(params: dict) -> None:
@@ -265,59 +204,6 @@ def GBQ_execute_SQL(params: dict) -> None:
     except Exception as e:
         print(f"[TRANSFORMATION [ERROR ❌]] Ocurrió un error al ejecutar el script SQL: {str(e)}\n", flush=True)
         raise
-
-# ----------------------------------------------------------------------------
-# GSheet_to_df()
-# ----------------------------------------------------------------------------
-def GSheet_to_df(params: dict) -> pd.DataFrame:
-    """
-    Extrae datos desde una hoja de cálculo de Google Sheets y los convierte en un DataFrame.
-    
-    Parámetros en params:
-      - spreadsheet_id (str): URL o ID de la hoja de cálculo.
-      - worksheet_name (str): Nombre de la hoja dentro del documento.
-      - json_keyfile (str, opcional): Ruta al JSON de credenciales (solo necesario en entornos locales).
-    
-    Retorna:
-        pd.DataFrame: DataFrame con los datos extraídos.
-    """
-    print("[START 🚀] Iniciando extracción de datos de Google Sheets...", flush=True)
-    import gspread
-    from google.auth.exceptions import DefaultCredentialsError
-    from google.auth import default
-    from oauth2client.service_account import ServiceAccountCredentials
-
-    spreadsheet_id_str = params.get("spreadsheet_id")
-    worksheet_name_str = params.get("worksheet_name")
-    json_keyfile_str = params.get("json_keyfile")
-
-    if not spreadsheet_id_str or not worksheet_name_str:
-        raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'spreadsheet_id' o 'worksheet_name'.")
-
-    try:
-        is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
-        if is_gcp:
-            print("[AUTHENTICATION [SUCCESS ✅]] Entorno GCP detectado. Usando autenticación automática.", flush=True)
-            creds, _ = default()
-        else:
-            if not json_keyfile_str:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Autenticando con JSON de credenciales.", flush=True)
-            scope_list = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-            creds = ServiceAccountCredentials.from_json_keyfile_name(json_keyfile_str, scope_list)
-        client = gspread.authorize(creds)
-        spreadsheet = client.open_by_url(spreadsheet_id_str)
-        worksheet = spreadsheet.worksheet(worksheet_name_str)
-        data_list = worksheet.get_all_records()
-        df = pd.DataFrame(data_list)
-        print(f"[EXTRACTION [SUCCESS ✅]] Datos extraídos con éxito de '{worksheet_name_str}'.\n", flush=True)
-        return df
-    except FileNotFoundError:
-        raise FileNotFoundError(f"[EXTRACTION [ERROR ❌]] Archivo JSON no encontrado: {json_keyfile_str}")
-    except DefaultCredentialsError:
-        raise ValueError("[AUTHENTICATION [ERROR ❌]] Error en la autenticación. Verifica las credenciales.")
-    except gspread.exceptions.SpreadsheetNotFound:
-        raise ValueError(f"[EXTRACTION [ERROR ❌]] No se encontró la hoja de cálculo: {spreadsheet_id_str}")
 
 # ----------------------------------------------------------------------------
 # SQL_generate_academic_date_str()
