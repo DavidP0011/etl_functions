@@ -224,37 +224,43 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
         spreadsheet_id = params.get("source_table_spreadsheet_id")
         worksheet_name = params.get("source_table_worksheet_name")
         json_keyfile_str = params.get("json_keyfile")
-
+    
         if not spreadsheet_id or not worksheet_name:
             raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'source_table_spreadsheet_id' o 'source_table_worksheet_name'.")
-
+    
         try:
             is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
+            scope_list = [
+                "https://spreadsheets.google.com/feeds",
+                "https://www.googleapis.com/auth/drive",
+                "https://www.googleapis.com/auth/spreadsheets"
+            ]
+    
             if is_gcp:
                 print("[AUTHENTICATION [SUCCESS ✅]] Entorno GCP detectado. Autenticación automática.", flush=True)
-                creds, _ = default()
+                creds, _ = default(scopes=scope_list)
             else:
                 if not json_keyfile_str:
                     raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile'.")
                 print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Usando JSON de credenciales.", flush=True)
-                scope_list = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
                 creds = ServiceAccountCredentials.from_json_keyfile_name(json_keyfile_str, scope_list)
-
+    
             client = gspread.authorize(creds)
             spreadsheet = client.open_by_url(spreadsheet_id)
             worksheet = spreadsheet.worksheet(worksheet_name)
-
+    
             data_list = worksheet.get_all_records()
             df = pd.DataFrame(data_list)
             print(f"[EXTRACTION [SUCCESS ✅]] Datos extraídos con éxito de la hoja '{worksheet_name}'.", flush=True)
             return df
-
+    
         except FileNotFoundError:
             raise FileNotFoundError(f"[EXTRACTION [ERROR ❌]] Archivo JSON no encontrado: {json_keyfile_str}")
         except DefaultCredentialsError:
             raise ValueError("[AUTHENTICATION [ERROR ❌]] Error en la autenticación. Verifique las credenciales.")
         except Exception as e:
             raise ValueError(f"[EXTRACTION [ERROR ❌]] Error al extraer datos de Google Sheets: {e}")
+
 
     # ────────────────────────────── Grupo: Proceso Principal ──────────────────────────────
     _validar_comun(params)
