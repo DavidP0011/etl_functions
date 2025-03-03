@@ -792,7 +792,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
         creds = service_account.Credentials.from_service_account_file(json_path)
         print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
     
-    # Funciones internas de normalización
+    # Función interna para normalizar texto
     def _normalize_text(texto: str) -> str:
         texto = texto.lower().strip()
         texto = unicodedata.normalize('NFD', texto)
@@ -801,10 +801,12 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
         return texto
 
     print("[METRICS [INFO 📊]] Validando parámetros obligatorios...", flush=True)
-    required = [config.get("source_table"), config.get("source_id_name_field"),
-                config.get("destination_table"), config.get("destination_id_field_name"),
-                config.get("destination_country_mapped_field_name"), config.get("source_country_name_best_list")]
-    if not all(isinstance(x, str) for x in required if x is not None) or not isinstance(config.get("source_country_name_best_list"), list):
+    if not (isinstance(config.get("source_table"), str) and 
+            isinstance(config.get("source_id_name_field"), str) and 
+            isinstance(config.get("destination_table"), str) and 
+            isinstance(config.get("destination_id_field_name"), str) and 
+            isinstance(config.get("destination_country_mapped_field_name"), str) and 
+            isinstance(config.get("source_country_name_best_list"), list)):
         raise ValueError("[VALIDATION [ERROR ❌]] Faltan parámetros obligatorios o tienen formato incorrecto.")
     
     def _build_update_sql(aux_table: str, client: bigquery.Client) -> str:
@@ -845,7 +847,10 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
         print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la tabla origen.", flush=True)
         return ""
     print("[TRANSFORMATION [START 🔄]] Procesando la mejor opción de país...", flush=True)
-    df["best_country_name"] = df.apply(lambda row: next((row[field] for field in config["source_country_name_best_list"] if pd.notna(row[field]) and row[field]), None), axis=1)
+    df["best_country_name"] = df.apply(
+        lambda row: next((row[field] for field in config["source_country_name_best_list"] if pd.notna(row[field]) and row[field]), None),
+        axis=1
+    )
     unique_countries = df["best_country_name"].dropna().unique().tolist()
     print(f"[METRICS [INFO 📊]] Se encontraron {len(unique_countries)} países únicos.", flush=True)
     
@@ -864,8 +869,8 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     
     print(f"[TRANSFORMATION [START 🔄]] Traduciendo {len(countries_to_translate)} países en lote...", flush=True)
     # Se asume que existe una función translate_batch_custom similar a la definida en otro bloque.
-    translated_dict = {}  # Aquí se integraría la traducción por lotes según la lógica existente.
-    # Para este ejemplo, se usa el valor original.
+    # Para este ejemplo se usará el valor original.
+    translated_dict = {}
     for country in countries_to_translate:
         translated_dict[country] = country
         print(f"[TRANSFORMATION [SUCCESS ✅]] '{country}' mapeado a: {country}", flush=True)
@@ -891,6 +896,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     print(sql_script, flush=True)
     print("[END [FINISHED 🏁]] Proceso finalizado.\n", flush=True)
     return sql_script
+
 
 
 # ----------------------------------------------------------------------------
