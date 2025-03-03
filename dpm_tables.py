@@ -226,10 +226,21 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
         """
         from googleapiclient.discovery import build
         import pandas as pd
-
-        spreadsheet_id = params.get("source_table_spreadsheet_id")
-        worksheet_name = params.get("source_table_worksheet_name")
+        import re
     
+        # Extraer el ID de la hoja. Si se pasó una URL, extraer el ID.
+        spreadsheet_id_raw = params.get("source_table_spreadsheet_id")
+        # Si la cadena contiene "spreadsheets/d/", extraer el ID
+        if "spreadsheets/d/" in spreadsheet_id_raw:
+            match = re.search(r"/d/([a-zA-Z0-9-_]+)", spreadsheet_id_raw)
+            if match:
+                spreadsheet_id = match.group(1)
+            else:
+                raise ValueError("[VALIDATION [ERROR ❌]] No se pudo extraer el ID de la hoja de cálculo desde la URL proporcionada.")
+        else:
+            spreadsheet_id = spreadsheet_id_raw
+    
+        worksheet_name = params.get("source_table_worksheet_name")
         if not spreadsheet_id or not worksheet_name:
             raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'source_table_spreadsheet_id' o 'source_table_worksheet_name'.")
     
@@ -250,7 +261,6 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
                 if not secret_id:
                     raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
                 print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando Secret Manager con json_keyfile_GCP_secret_id.", flush=True)
-                # Extraer las credenciales desde Secret Manager
                 from google.cloud import secretmanager
                 import json
                 project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
@@ -271,31 +281,22 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
     
             # Construir el servicio de Google Sheets
             service = build('sheets', 'v4', credentials=creds)
-    
-            # Definir el rango (nombre de la pestaña)
             range_name = f"{worksheet_name}"
     
             print("[EXTRACTION [START ⏳]] Extrayendo datos de Google Sheets...", flush=True)
-    
-            # Llamada a la API de Google Sheets
-            result = service.spreadsheets().values().get(
-                spreadsheetId=spreadsheet_id, 
-                range=range_name
-            ).execute()
+            result = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=range_name).execute()
             data = result.get('values', [])
-    
             if not data:
                 print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la hoja especificada.", flush=True)
                 return pd.DataFrame()
     
-            # Convertir a DataFrame (asumiendo que la primera fila contiene los encabezados)
             df = pd.DataFrame(data[1:], columns=data[0])
             print(f"[EXTRACTION [SUCCESS ✅]] Datos extraídos con éxito de la hoja '{worksheet_name}'.", flush=True)
-    
             return df
     
         except Exception as e:
             raise ValueError(f"[EXTRACTION [ERROR ❌]] Error al extraer datos de Google Sheets: {e}")
+
 
     # ────────────────────────────── Grupo: Proceso Principal ──────────────────────────────
     _validar_comun(params)
