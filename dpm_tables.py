@@ -219,8 +219,18 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
         return df
 
     # ────────────────────────────── Grupo: Fuente – Google Sheets ──────────────────────────────
+    
     def _leer_google_sheet(params: dict) -> pd.DataFrame:
-        _imprimir_encabezado("[START 🚀] Iniciando extracción de datos desde Google Sheets")
+        """
+        Función para extraer datos desde Google Sheets en entornos GCP o locales.
+        Soporta autenticación automática en GCP o mediante un archivo JSON en Colab/local.
+        """
+        from google.auth import default
+        from googleapiclient.discovery import build
+        import pandas as pd
+        import os
+    
+        # Extracción de parámetros
         spreadsheet_id = params.get("source_table_spreadsheet_id")
         worksheet_name = params.get("source_table_worksheet_name")
         json_keyfile_str = params.get("json_keyfile")
@@ -229,37 +239,50 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
             raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'source_table_spreadsheet_id' o 'source_table_worksheet_name'.")
     
         try:
-            is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
+            # Definir los scopes necesarios
             scope_list = [
-                "https://spreadsheets.google.com/feeds",
-                "https://www.googleapis.com/auth/drive",
-                "https://www.googleapis.com/auth/spreadsheets"
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"
             ]
+    
+            # Verificar si el entorno es GCP (Vertex AI/Colab Enterprise)
+            is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
     
             if is_gcp:
                 print("[AUTHENTICATION [SUCCESS ✅]] Entorno GCP detectado. Autenticación automática.", flush=True)
                 creds, _ = default(scopes=scope_list)
             else:
+                from google.oauth2.service_account import Credentials
                 if not json_keyfile_str:
                     raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile'.")
                 print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Usando JSON de credenciales.", flush=True)
-                creds = ServiceAccountCredentials.from_json_keyfile_name(json_keyfile_str, scope_list)
+                creds = Credentials.from_service_account_file(json_keyfile_str, scopes=scope_list)
     
-            client = gspread.authorize(creds)
-            spreadsheet = client.open_by_url(spreadsheet_id)
-            worksheet = spreadsheet.worksheet(worksheet_name)
+            # Construir el servicio de Google Sheets
+            service = build('sheets', 'v4', credentials=creds)
     
-            data_list = worksheet.get_all_records()
-            df = pd.DataFrame(data_list)
+            # Definir el rango de datos a extraer (por ejemplo, toda la hoja)
+            range_name = f"{worksheet_name}"
+    
+            print("[EXTRACTION [START ⏳]] Extrayendo datos de Google Sheets...", flush=True)
+    
+            # Llamar a la API de Google Sheets
+            result = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=range_name).execute()
+            data = result.get('values', [])
+    
+            if not data:
+                print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la hoja especificada.", flush=True)
+                return pd.DataFrame()
+    
+            # Convertir los datos a un DataFrame
+            df = pd.DataFrame(data[1:], columns=data[0])
             print(f"[EXTRACTION [SUCCESS ✅]] Datos extraídos con éxito de la hoja '{worksheet_name}'.", flush=True)
+    
             return df
     
-        except FileNotFoundError:
-            raise FileNotFoundError(f"[EXTRACTION [ERROR ❌]] Archivo JSON no encontrado: {json_keyfile_str}")
-        except DefaultCredentialsError:
-            raise ValueError("[AUTHENTICATION [ERROR ❌]] Error en la autenticación. Verifique las credenciales.")
         except Exception as e:
             raise ValueError(f"[EXTRACTION [ERROR ❌]] Error al extraer datos de Google Sheets: {e}")
+
 
 
     # ────────────────────────────── Grupo: Proceso Principal ──────────────────────────────
