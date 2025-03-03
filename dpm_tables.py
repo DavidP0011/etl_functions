@@ -94,7 +94,8 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
       - source_table_filter_skip_row_empty_use (bool, opcional): Si True, elimina filas completamente vacías. Por defecto True.
       - source_table_col_start (int, opcional): Primera columna a leer (0-indexado). Por defecto 0.
       - source_table_col_end (int, opcional): Última columna a leer (excluyente). Si es None, lee todas.
-      - json_keyfile (str, requerido): Ruta al archivo JSON de credenciales de GCP.
+      - json_keyfile_GCP (str, requerido para GCP): Ruta al archivo JSON de credenciales de GCP.
+      - json_keyfile_colab (str, requerido para Colab/local): Ruta al archivo JSON de credenciales (por ejemplo, alojado en Drive).
 
     Retorna:
       pd.DataFrame: DataFrame con los datos extraídos y procesados.
@@ -111,12 +112,12 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
 
     # Para Google Sheets
     import gspread
-    from google.auth import default
-    from oauth2client.service_account import ServiceAccountCredentials
-    from google.auth.exceptions import DefaultCredentialsError
-
     # Para archivos (en Colab)
-    from google.colab import files
+    try:
+        from google.colab import files
+    except ImportError:
+        # Si no se está en Colab, no se requiere la importación
+        pass
 
     # ────────────────────────────── Grupo: Encabezados ──────────────────────────────
     def _imprimir_encabezado(mensaje: str) -> None:
@@ -124,8 +125,8 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
 
     # ────────────────────────────── Grupo: Validación de Parámetros ──────────────────────────────
     def _validar_comun(params: dict) -> None:
-        if 'json_keyfile' not in params or not params['json_keyfile']:
-            raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro obligatorio 'json_keyfile' para autenticación.")
+        if not (params.get('json_keyfile_GCP') or params.get('json_keyfile_colab')):
+            raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro obligatorio 'json_keyfile_GCP' o 'json_keyfile_colab' para autenticación.")
 
     # ────────────────────────────── Grupo: Determinación del Origen ──────────────────────────────
     def _es_fuente_archivo(params: dict) -> bool:
@@ -140,7 +141,6 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
     # ────────────────────────────── Grupo: Fuente – Archivo ──────────────────────────────
     def _leer_archivo(params: dict) -> pd.DataFrame:
         _imprimir_encabezado("[START 🚀] Iniciando carga del archivo")
-        # Parámetros específicos del archivo
         file_path = params.get('source_table_file_path')
         row_start = params.get('source_table_row_start', 0)
         row_end = params.get('source_table_row_end', None)
@@ -219,21 +219,17 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
         return df
 
     # ────────────────────────────── Grupo: Fuente – Google Sheets ──────────────────────────────
-    
     def _leer_google_sheet(params: dict) -> pd.DataFrame:
         """
-        Función para extraer datos desde Google Sheets en entornos GCP o locales.
-        Soporta autenticación automática en GCP o mediante un archivo JSON en Colab/local.
+        Extrae datos desde Google Sheets usando autenticación diferenciada:
+          - En GCP: utiliza el JSON ubicado en 'json_keyfile_GCP'
+          - En Colab/local: utiliza el JSON ubicado en 'json_keyfile_colab'
         """
-        from google.auth import default
         from googleapiclient.discovery import build
         import pandas as pd
-        import os
-    
-        # Extracción de parámetros
+
         spreadsheet_id = params.get("source_table_spreadsheet_id")
         worksheet_name = params.get("source_table_worksheet_name")
-        json_keyfile_str = params.get("json_keyfile")
     
         if not spreadsheet_id or not worksheet_name:
             raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'source_table_spreadsheet_id' o 'source_table_worksheet_name'.")
@@ -245,36 +241,44 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
                 "https://www.googleapis.com/auth/drive"
             ]
     
-            # Verificar si el entorno es GCP (Vertex AI/Colab Enterprise)
+            # Detectar el entorno: GCP o Colab/local
             is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
     
+            from google.oauth2.service_account import Credentials
+    
             if is_gcp:
-                print("[AUTHENTICATION [SUCCESS ✅]] Entorno GCP detectado. Autenticación automática.", flush=True)
-                creds, _ = default(scopes=scope_list)
+                json_keyfile = params.get("json_keyfile_GCP")
+                if not json_keyfile:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP'.")
+                print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando json_keyfile_GCP.", flush=True)
+                creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
             else:
-                from google.oauth2.service_account import Credentials
-                if not json_keyfile_str:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Usando JSON de credenciales.", flush=True)
-                creds = Credentials.from_service_account_file(json_keyfile_str, scopes=scope_list)
+                json_keyfile = params.get("json_keyfile_colab")
+                if not json_keyfile:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile_colab'.")
+                print("[AUTHENTICATION [INFO] 🔐] Entorno Colab detectado. Usando json_keyfile_colab.", flush=True)
+                creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
     
             # Construir el servicio de Google Sheets
             service = build('sheets', 'v4', credentials=creds)
     
-            # Definir el rango de datos a extraer (por ejemplo, toda la hoja)
+            # Definir el rango (nombre de la pestaña)
             range_name = f"{worksheet_name}"
     
             print("[EXTRACTION [START ⏳]] Extrayendo datos de Google Sheets...", flush=True)
     
-            # Llamar a la API de Google Sheets
-            result = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=range_name).execute()
+            # Llamada a la API de Google Sheets
+            result = service.spreadsheets().values().get(
+                spreadsheetId=spreadsheet_id, 
+                range=range_name
+            ).execute()
             data = result.get('values', [])
     
             if not data:
                 print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la hoja especificada.", flush=True)
                 return pd.DataFrame()
     
-            # Convertir los datos a un DataFrame
+            # Convertir a DataFrame (asumiendo que la primera fila contiene los encabezados)
             df = pd.DataFrame(data[1:], columns=data[0])
             print(f"[EXTRACTION [SUCCESS ✅]] Datos extraídos con éxito de la hoja '{worksheet_name}'.", flush=True)
     
@@ -282,8 +286,6 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
     
         except Exception as e:
             raise ValueError(f"[EXTRACTION [ERROR ❌]] Error al extraer datos de Google Sheets: {e}")
-
-
 
     # ────────────────────────────── Grupo: Proceso Principal ──────────────────────────────
     _validar_comun(params)
