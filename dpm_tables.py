@@ -94,8 +94,8 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
       - source_table_filter_skip_row_empty_use (bool, opcional): Si True, elimina filas completamente vacías. Por defecto True.
       - source_table_col_start (int, opcional): Primera columna a leer (0-indexado). Por defecto 0.
       - source_table_col_end (int, opcional): Última columna a leer (excluyente). Si es None, lee todas.
-      - json_keyfile_GCP (str, requerido para GCP): Ruta al archivo JSON de credenciales de GCP.
-      - json_keyfile_colab (str, requerido para Colab/local): Ruta al archivo JSON de credenciales (por ejemplo, alojado en Drive).
+      - json_keyfile_GCP_secret_id (str, requerido en GCP): El secret_id del JSON de credenciales alojado en Secret Manager.
+      - json_keyfile_colab (str, requerido en Colab/local): Ruta al archivo JSON de credenciales.
 
     Retorna:
       pd.DataFrame: DataFrame con los datos extraídos y procesados.
@@ -116,7 +116,6 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
     try:
         from google.colab import files
     except ImportError:
-        # Si no se está en Colab, no se requiere la importación
         pass
 
     # ────────────────────────────── Grupo: Encabezados ──────────────────────────────
@@ -125,8 +124,8 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
 
     # ────────────────────────────── Grupo: Validación de Parámetros ──────────────────────────────
     def _validar_comun(params: dict) -> None:
-        if not (params.get('json_keyfile_GCP') or params.get('json_keyfile_colab')):
-            raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro obligatorio 'json_keyfile_GCP' o 'json_keyfile_colab' para autenticación.")
+        if not (params.get('json_keyfile_GCP_secret_id') or params.get('json_keyfile_colab')):
+            raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro obligatorio 'json_keyfile_GCP_secret_id' o 'json_keyfile_colab' para autenticación.")
 
     # ────────────────────────────── Grupo: Determinación del Origen ──────────────────────────────
     def _es_fuente_archivo(params: dict) -> bool:
@@ -222,7 +221,7 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
     def _leer_google_sheet(params: dict) -> pd.DataFrame:
         """
         Extrae datos desde Google Sheets usando autenticación diferenciada:
-          - En GCP: utiliza el JSON ubicado en 'json_keyfile_GCP'
+          - En GCP: utiliza Secret Manager con el parámetro 'json_keyfile_GCP_secret_id'
           - En Colab/local: utiliza el JSON ubicado en 'json_keyfile_colab'
         """
         from googleapiclient.discovery import build
@@ -247,11 +246,22 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
             from google.oauth2.service_account import Credentials
     
             if is_gcp:
-                json_keyfile = params.get("json_keyfile_GCP")
-                if not json_keyfile:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando json_keyfile_GCP.", flush=True)
-                creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
+                secret_id = params.get("json_keyfile_GCP_secret_id")
+                if not secret_id:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
+                print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando Secret Manager con json_keyfile_GCP_secret_id.", flush=True)
+                # Extraer las credenciales desde Secret Manager
+                from google.cloud import secretmanager
+                import json
+                project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+                if not project_id:
+                    raise ValueError("No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT'.")
+                client = secretmanager.SecretManagerServiceClient()
+                secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+                response = client.access_secret_version(name=secret_name)
+                secret_string = response.payload.data.decode("UTF-8")
+                secret_info = json.loads(secret_string)
+                creds = Credentials.from_service_account_info(secret_info, scopes=scope_list)
             else:
                 json_keyfile = params.get("json_keyfile_colab")
                 if not json_keyfile:
@@ -296,3 +306,4 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
     else:
         raise ValueError("[VALIDATION [ERROR ❌]] No se han proporcionado parámetros válidos para identificar el origen de datos. "
                          "Defina 'source_table_file_path' para archivos o 'source_table_spreadsheet_id' y 'source_table_worksheet_name' para Google Sheets.")
+
