@@ -2,7 +2,7 @@
 # scrape_and_upload_with_tconst()
 # ----------------------------------------------------------------------------
 
-def scrape_and_upload_with_tconst(params: dict) -> None:
+def box_office_mojo_to_GBQ(params: dict) -> None:
     """
     Scrapea datos de Box Office Mojo, agrega el tconst desde IMDb Pro y carga la información en una tabla de BigQuery.
 
