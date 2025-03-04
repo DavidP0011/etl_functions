@@ -30,7 +30,7 @@ def DF_to_GBQ(params: dict) -> None:
       - json_keyfile_colab (str): Ruta al archivo JSON de credenciales (requerido en entornos no GCP).
       - if_exists (str, opcional): 'fail', 'replace' o 'append' (por defecto 'append').
     """
-    print("[START 🚀] Iniciando carga del DataFrame a BigQuery...", flush=True)
+    print("[START ▶️] Iniciando carga del DataFrame a BigQuery...", flush=True)
     
     import os, re, time, json
     import pandas as pd
@@ -57,16 +57,16 @@ def DF_to_GBQ(params: dict) -> None:
     destination_table = params['destination_table']
     if_exists = params.get('if_exists', 'append')
     df = _sanitizar_columnas(df)
-    print("[METRICS [INFO 📊]] Columnas sanitizadas:", df.columns.tolist(), flush=True)
+    print("[METRICS [INFO ℹ️]] Columnas sanitizadas:", df.columns.tolist(), flush=True)
     
     # ───── Autenticación ─────
     def _autenticar_gcp(project_id: str) -> bigquery.Client:
-        print("[AUTHENTICATION [INFO] 🔐] Iniciando autenticación en BigQuery...", flush=True)
+        print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación en BigQuery...", flush=True)
         if os.environ.get("GOOGLE_CLOUD_PROJECT"):
             secret_id = params.get("json_keyfile_GCP_secret_id")
             if not secret_id:
                 raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
+            print("[AUTHENTICATION [INFO] ℹ️] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
             client_sm = secretmanager.SecretManagerServiceClient()
             secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
             response = client_sm.access_secret_version(name=secret_name)
@@ -78,7 +78,7 @@ def DF_to_GBQ(params: dict) -> None:
             json_path = params.get("json_keyfile_colab")
             if not json_path:
                 raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Usando credenciales desde archivo JSON...", flush=True)
+            print("[AUTHENTICATION [INFO] ℹ️] Entorno local/Colab detectado. Usando credenciales desde archivo JSON...", flush=True)
             credentials = service_account.Credentials.from_service_account_file(json_path)
             print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
         client = bigquery.Client(credentials=credentials, project=project_id)
@@ -98,18 +98,18 @@ def DF_to_GBQ(params: dict) -> None:
             'append': 'WRITE_APPEND'
         }
         job_config = bigquery.LoadJobConfig(write_disposition=config_map.get(if_exists, 'WRITE_APPEND'))
-        print(f"[LOAD [START 📤]] Iniciando carga de datos a la tabla '{destination_table}'...", flush=True)
+        print(f"[LOAD [START ▶️]] Iniciando carga de datos a la tabla '{destination_table}'...", flush=True)
         start_time = time.time()
         job = client.load_table_from_dataframe(df, destination_table, job_config=job_config)
         job.result()  # Espera a que se complete la carga
         elapsed_time = time.time() - start_time
         print("[LOAD [SUCCESS ✅]] Datos cargados correctamente.", flush=True)
-        print(f"[METRICS [INFO 📊]] Filas insertadas: {df.shape[0]}, Columnas: {df.shape[1]}", flush=True)
-        print(f"[METRICS [INFO 📊]] Tiempo total de carga: {elapsed_time:.2f} segundos\n", flush=True)
+        print(f"[METRICS [INFO ℹ️]] Filas insertadas: {df.shape[0]}, Columnas: {df.shape[1]}", flush=True)
+        print(f"[METRICS [INFO ℹ️]] Tiempo total de carga: {elapsed_time:.2f} segundos\n", flush=True)
         _mostrar_detalles_job(client, job, elapsed_time, destination_table)
 
     def _mostrar_detalles_job(client: bigquery.Client, job, elapsed_time: float, destination_table: str) -> None:
-        print("[METRICS [INFO 📊]] Detalles del job de carga:", flush=True)
+        print("[METRICS [INFO ℹ️]] Detalles del job de carga:", flush=True)
         print(f"  - ID del job: {job.job_id}", flush=True)
         print(f"  - Estado: {job.state}", flush=True)
         print(f"  - Tiempo de creación: {job.created}", flush=True)
@@ -130,7 +130,7 @@ def DF_to_GBQ(params: dict) -> None:
             print(f"  - Tamaño de la tabla destino: {table_size_kb:.2f} KB", flush=True)
         except Exception as e:
             print(f"[METRICS [WARNING ⚠️]] No se pudo obtener información adicional de la tabla destino: {e}", flush=True)
-        print(f"[END [FINISHED 🏁]] Proceso de carga finalizado en {elapsed_time:.2f} segundos.\n", flush=True)
+        print(f"[END [FINISHED ✅]] Proceso de carga finalizado en {elapsed_time:.2f} segundos.\n", flush=True)
 
     _cargar_dataframe(client, df, destination_table, if_exists)
 
@@ -149,7 +149,7 @@ def GBQ_execute_SQL(params: dict) -> None:
       - json_keyfile_colab (str, opcional): Ruta del archivo JSON de credenciales (en entornos no GCP).
       - destination_table (str, opcional): Tabla destino para obtener estadísticas adicionales.
     """
-    print("[START 🚀] Iniciando ejecución de script SQL en BigQuery...", flush=True)
+    print("[START ▶️] Iniciando ejecución de script SQL en BigQuery...", flush=True)
     import os, time, re, json
     from google.cloud import bigquery, secretmanager
     from google.oauth2 import service_account
@@ -167,7 +167,7 @@ def GBQ_execute_SQL(params: dict) -> None:
             secret_id = params.get("json_keyfile_GCP_secret_id")
             if not secret_id:
                 raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
+            print("[AUTHENTICATION [INFO] ℹ️] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
             client_sm = secretmanager.SecretManagerServiceClient()
             secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
             response = client_sm.access_secret_version(name=secret_name)
@@ -179,27 +179,27 @@ def GBQ_execute_SQL(params: dict) -> None:
             json_path = params.get("json_keyfile_colab")
             if not json_path:
                 raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Usando credenciales desde archivo JSON...", flush=True)
+            print("[AUTHENTICATION [INFO] ℹ️] Entorno local/Colab detectado. Usando credenciales desde archivo JSON...", flush=True)
             creds = service_account.Credentials.from_service_account_file(json_path)
             print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
         return creds
 
     def _inicializar_cliente(project_id: str, creds) -> bigquery.Client:
-        print("[LOAD [START 📤]] Iniciando cliente de BigQuery...", flush=True)
+        print("[LOAD [START ▶️]] Iniciando cliente de BigQuery...", flush=True)
         client = bigquery.Client(project=project_id, credentials=creds)
         print(f"[LOAD [SUCCESS ✅]] Cliente inicializado para el proyecto: {project_id}\n", flush=True)
         return client
 
     def _mostrar_resumen_script(sql_script: str) -> None:
         action = sql_script.strip().split()[0]
-        print(f"[EXTRACTION [INFO 📊]] Acción detectada en el script SQL: {action}", flush=True)
-        print("[EXTRACTION [INFO 📊]] Resumen del script (primeras 5 líneas):", flush=True)
+        print(f"[EXTRACTION [INFO ℹ️]] Acción detectada en el script SQL: {action}", flush=True)
+        print("[EXTRACTION [INFO ℹ️]] Resumen del script (primeras 5 líneas):", flush=True)
         for line in sql_script.strip().split('\n')[:5]:
             print(line, flush=True)
         print("...", flush=True)
 
     def _ejecutar_query(client: bigquery.Client, sql_script: str, start_time: float):
-        print("[TRANSFORMATION [START 🔄]] Ejecutando el script SQL...", flush=True)
+        print("[TRANSFORMATION [START ▶️]] Ejecutando el script SQL...", flush=True)
         query_job = client.query(sql_script)
         query_job.result()  # Espera a que se complete la consulta
         elapsed_time = time.time() - start_time
@@ -207,7 +207,7 @@ def GBQ_execute_SQL(params: dict) -> None:
         return query_job, elapsed_time
 
     def _mostrar_detalles_trabajo(client: bigquery.Client, query_job, elapsed_time: float, destination_table: str) -> None:
-        print("[METRICS [INFO 📊]] Detalles del trabajo de BigQuery:", flush=True)
+        print("[METRICS [INFO ℹ️]] Detalles del trabajo de BigQuery:", flush=True)
         print(f"  - ID del job: {query_job.job_id}", flush=True)
         print(f"  - Estado: {query_job.state}", flush=True)
         print(f"  - Tiempo de creación: {query_job.created}", flush=True)
@@ -226,7 +226,7 @@ def GBQ_execute_SQL(params: dict) -> None:
                 print(f"  - Filas en la tabla destino: {rows_in_table}", flush=True)
             except Exception as e:
                 print(f"[METRICS [WARNING ⚠️]] No se pudo obtener información de la tabla destino: {e}", flush=True)
-        print(f"[END [FINISHED 🏁]] Tiempo total de ejecución: {elapsed_time:.2f} segundos\n", flush=True)
+        print(f"[END [FINISHED ✅]] Tiempo total de ejecución: {elapsed_time:.2f} segundos\n", flush=True)
 
     project_id, sql_script, destination_table = _validar_parametros(params)
     creds = _autenticar(project_id)
@@ -258,14 +258,14 @@ def SQL_generate_academic_date_str(params):
     Retorna:
         str: Sentencia SQL generada.
     """
-    print("[START 🚀] Iniciando generación del SQL para fechas académicas/fiscales...", flush=True)
+    print("[START ▶️] Iniciando generación del SQL para fechas académicas/fiscales...", flush=True)
     table_source = params["table_source"]
     table_destination = params["table_destination"]
     custom_fields_config = params["custom_fields_config"]
 
-    print(f"[EXTRACTION [INFO 📊]] table_source: {table_source}", flush=True)
-    print(f"[EXTRACTION [INFO 📊]] table_destination: {table_destination}", flush=True)
-    print("[TRANSFORMATION [INFO 🔄]] Procesando configuración de fechas...", flush=True)
+    print(f"[EXTRACTION [INFO ℹ️]] table_source: {table_source}", flush=True)
+    print(f"[EXTRACTION [INFO ℹ️]] table_destination: {table_destination}", flush=True)
+    print("[TRANSFORMATION [INFO ℹ️]] Procesando configuración de fechas...", flush=True)
 
     additional_expressions = []
     for field, configs in custom_fields_config.items():
@@ -292,7 +292,7 @@ CASE
 END AS `{new_field}`
 """.strip()
             additional_expressions.append(expression)
-            print(f"[TRANSFORMATION [INFO 🔄]] Expresión generada para '{field}' con suffix '{suffix}'.", flush=True)
+            print(f"[TRANSFORMATION [INFO ℹ️]] Expresión generada para '{field}' con suffix '{suffix}'.", flush=True)
     
     additional_select = ",\n  ".join(additional_expressions) if additional_expressions else ""
     if additional_select:
@@ -311,7 +311,7 @@ SELECT
   *
 FROM `{table_source}`;
 """.strip()
-    print("[END [FINISHED 🏁]] SQL generado exitosamente.\n", flush=True)
+    print("[END [FINISHED ✅]] SQL generado exitosamente.\n", flush=True)
     return SQL_script
 
 # ----------------------------------------------------------------------------
@@ -336,7 +336,7 @@ def SQL_generate_BI_view_str(params: dict) -> str:
     Retorna:
         str: Sentencia SQL generada.
     """
-    print("[START 🚀] Iniciando generación de vista BI...", flush=True)
+    print("[START ▶️] Iniciando generación de vista BI...", flush=True)
     table_source = params.get("table_source")
     table_destination = params.get("table_destination")
     fields_mapped_df = params.get("fields_mapped_df")
@@ -380,7 +380,7 @@ FROM `{table_source}`
 WHERE {where_clause}
 ;
 """.strip()
-    print("[END [FINISHED 🏁]] Vista BI generada.\n", flush=True)
+    print("[END [FINISHED ✅]] Vista BI generada.\n", flush=True)
     return sql_script_str
 
 # ----------------------------------------------------------------------------
@@ -403,7 +403,7 @@ def SQL_generate_CPL_to_contacts_str(params: dict) -> str:
     Retorna:
         str: Sentencia SQL generada.
     """
-    print("[START 🚀] Iniciando generación del SQL para CPL a contacts...", flush=True)
+    print("[START ▶️] Iniciando generación del SQL para CPL a contacts...", flush=True)
     table_destination = params["table_destination"]
     table_source = params["table_source"]
     table_aggregated = params["table_aggregated"]
@@ -452,7 +452,7 @@ SELECT
 {join_clause}
 ;
 """.strip()
-    print("[END [FINISHED 🏁]] SQL para CPL a contacts generado.\n", flush=True)
+    print("[END [FINISHED ✅]] SQL para CPL a contacts generado.\n", flush=True)
     return SQL_script
 
 # ----------------------------------------------------------------------------
@@ -480,7 +480,7 @@ def SQL_generate_cleaning_str(params: dict) -> str:
     Retorna:
         str: Sentencia SQL generada.
     """
-    print("[START 🚀] Iniciando generación del SQL de limpieza...", flush=True)
+    print("[START ▶️] Iniciando generación del SQL de limpieza...", flush=True)
     table_source = params.get("table_source")
     table_destination = params.get("table_destination")
     fields_mapped_df = params.get("fields_mapped_df")
@@ -525,7 +525,7 @@ FROM `{table_source}`
 WHERE {where_clause}
 ;
 """.strip()
-    print("[END [FINISHED 🏁]] SQL de limpieza generado.\n", flush=True)
+    print("[END [FINISHED ✅]] SQL de limpieza generado.\n", flush=True)
     return SQL_script
 
 # ----------------------------------------------------------------------------
@@ -590,12 +590,12 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     import pandas_gbq
 
     # --- Autenticación ---
-    print("[AUTHENTICATION [INFO] 🔐] Iniciando autenticación...", flush=True)
+    print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
         secret_id = config.get("json_keyfile_GCP_secret_id")
         if not secret_id:
             raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-        print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
+        print("[AUTHENTICATION [INFO] ℹ️] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
         project = os.environ.get("GOOGLE_CLOUD_PROJECT")
         client_sm = secretmanager.SecretManagerServiceClient()
         secret_name = f"projects/{project}/secrets/{secret_id}/versions/latest"
@@ -608,12 +608,12 @@ def SQL_generate_country_from_phone(config: dict) -> str:
         json_path = config.get("json_keyfile_colab")
         if not json_path:
             raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
-        print("[AUTHENTICATION [INFO] 🔐] Entorno local detectado. Usando credenciales desde archivo JSON...", flush=True)
+        print("[AUTHENTICATION [INFO] ℹ️] Entorno local detectado. Usando credenciales desde archivo JSON...", flush=True)
         creds = service_account.Credentials.from_service_account_file(json_path)
         print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
     
     # --- Extracción de datos de contactos ---
-    print("[EXTRACTION [START ⏳]] Extrayendo datos de la tabla de contactos...", flush=True)
+    print("[EXTRACTION [START ▶️]] Extrayendo datos de la tabla de contactos...", flush=True)
     query_source = f"""
         SELECT {config['source_contact_id_field_name']}, {config['source_contact_phone_field']}
         FROM `{config['source_table']}`
@@ -628,7 +628,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     df_contacts = df_contacts[df_contacts["phone"].notna() & (df_contacts["phone"].str.strip() != "")]
     
     # --- Procesamiento de teléfonos (por lotes) ---
-    print("[TRANSFORMATION [START 🔄]] Preprocesando y procesando teléfonos en lotes...", flush=True)
+    print("[TRANSFORMATION [START ▶️]] Preprocesando y procesando teléfonos en lotes...", flush=True)
     def _preprocess_phone(phone: str, default_prefix: str = config.get("default_phone_prefix", "+34")) -> str:
         if phone and isinstance(phone, str):
             phone = phone.strip()
@@ -674,13 +674,13 @@ def SQL_generate_country_from_phone(config: dict) -> str:
             except Exception as e:
                 error_batches += 1
                 print(f"[EXTRACTION [ERROR ❌]] Error en el lote {i+1}: {e}", flush=True)
-            print(f"[METRICS [INFO 📊]] Lote {i+1}/{num_batches} procesado.", flush=True)
+            print(f"[METRICS [INFO ℹ️]] Lote {i+1}/{num_batches} procesado.", flush=True)
         return pd.Series(results, index=series.index), num_batches, error_batches
 
     df_contacts["country_name_iso"], num_batches, error_batches = _process_phone_numbers(df_contacts["phone"], batch_size=1000)
     
     # --- Extracción de estatus de llamadas ---
-    print("[EXTRACTION [START ⏳]] Extrayendo estatus de llamadas por contacto...", flush=True)
+    print("[EXTRACTION [START ▶️]] Extrayendo estatus de llamadas por contacto...", flush=True)
     query_calls = f"""
         SELECT {config['source_engagement_call_id_match_contact_field_name']} AS contact_id,
                {config['source_engagement_call_status_field_name']} AS call_status,
@@ -710,14 +710,14 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     total_registros = len(df_contacts)
     exitos = df_contacts["country_name_iso"].notna().sum()
     fallidos = total_registros - exitos
-    print("\n[METRICS [INFO 📊]] Estadísticas del procesamiento:", flush=True)
+    print("\n[METRICS [INFO ℹ️]] Estadísticas del procesamiento:", flush=True)
     print(f"    - Registros totales: {total_registros}", flush=True)
     print(f"    - Exitosos: {exitos} ({(exitos/total_registros)*100:.2f}%)", flush=True)
     print(f"    - Fallidos: {fallidos} ({(fallidos/total_registros)*100:.2f}%)", flush=True)
     print(f"    - Lotes procesados: {num_batches} (Errores en {error_batches} lotes)", flush=True)
     
     country_counts = df_contacts["country_name_iso"].value_counts(dropna=True)
-    print("\n[METRICS [INFO 📊]] Distribución por país:", flush=True)
+    print("\n[METRICS [INFO ℹ️]] Distribución por país:", flush=True)
     for country, count in country_counts.items():
         porcentaje = (count/total_registros)*100
         print(f"    - {country}: {count} registros ({porcentaje:.2f}%)", flush=True)
@@ -731,7 +731,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     temp_table_name = config.get("temp_table_name", "temp_country_mapping_from_phone")
     aux_table = f"{dest_project}.{dest_dataset}.{temp_table_name}"
     
-    print(f"\n[LOAD [START 📤]] Subiendo tabla auxiliar {aux_table}...", flush=True)
+    print(f"\n[LOAD [START ▶️]] Subiendo tabla auxiliar {aux_table}...", flush=True)
     pandas_gbq.to_gbq(mapping_df,
                         destination_table=aux_table,
                         project_id=dest_project,
@@ -773,7 +773,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     sql_script = _build_update_sql(aux_table, client)
     print("\n[TRANSFORMATION [SUCCESS ✅]] SQL generado para actualizar la tabla destino.", flush=True)
     print(sql_script, flush=True)
-    print("[END [FINISHED 🏁]] Proceso finalizado.\n", flush=True)
+    print("[END [FINISHED ✅]] Proceso finalizado.\n", flush=True)
     
     return sql_script
 
@@ -831,12 +831,12 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     import os, json
     from google.oauth2 import service_account
     # --- Autenticación ---
-    print("[AUTHENTICATION [INFO] 🔐] Iniciando autenticación...", flush=True)
+    print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
         secret_id = config.get("json_keyfile_GCP_secret_id")
         if not secret_id:
             raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-        print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
+        print("[AUTHENTICATION [INFO] ℹ️] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
         project = os.environ.get("GOOGLE_CLOUD_PROJECT")
         client_sm = secretmanager.SecretManagerServiceClient()
         secret_name = f"projects/{project}/secrets/{secret_id}/versions/latest"
@@ -849,12 +849,12 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
         json_path = config.get("json_keyfile_colab")
         if not json_path:
             raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
-        print("[AUTHENTICATION [INFO] 🔐] Entorno local detectado. Usando credenciales desde archivo JSON...", flush=True)
+        print("[AUTHENTICATION [INFO] ℹ️] Entorno local detectado. Usando credenciales desde archivo JSON...", flush=True)
         creds = service_account.Credentials.from_service_account_file(json_path)
         print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
     
     # --- Validación de parámetros ---
-    print("[METRICS [INFO 📊]] Validando parámetros obligatorios...", flush=True)
+    print("[METRICS [INFO ℹ️]] Validando parámetros obligatorios...", flush=True)
     source_table = config.get("source_table")
     source_country_name_best_list = config.get("source_country_name_best_list")
     source_id_name_field = config.get("source_id_name_field")
@@ -993,7 +993,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     # --- Proceso principal ---
     source_project = source_table.split(".")[0]
     client = bigquery.Client(project=source_project, credentials=creds)
-    print(f"[EXTRACTION [START ⏳]] Extrayendo datos de {source_table}...", flush=True)
+    print(f"[EXTRACTION [START ▶️]] Extrayendo datos de {source_table}...", flush=True)
     
     country_fields_sql = ", ".join(source_country_name_best_list)
     query_source = f"""
@@ -1017,10 +1017,10 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
         print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la tabla origen.", flush=True)
         return ""
     
-    print("[TRANSFORMATION [START 🔄]] Procesando la mejor opción de país...", flush=True)
+    print("[TRANSFORMATION [START ▶️]] Procesando la mejor opción de país...", flush=True)
     df["best_country_name"] = df.apply(_get_best_country, axis=1)
     unique_countries = df["best_country_name"].dropna().unique().tolist()
-    print(f"[METRICS [INFO 📊]] Se encontraron {len(unique_countries)} países únicos para mapear.", flush=True)
+    print(f"[METRICS [INFO ℹ️]] Se encontraron {len(unique_countries)} países únicos para mapear.", flush=True)
     
     # Preparar el conjunto de países a omitir (skip)
     skip_set = set(_normalize_text(x) for x in country_name_skip_values_list if isinstance(x, str))
@@ -1032,12 +1032,12 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
             mapping_results[country] = None
             continue
         if _normalize_text(country) in skip_set:
-            print(f"[EXTRACTION [INFO 📊]] Saltando mapeo para '{country}' (en lista de omisión).", flush=True)
+            print(f"[EXTRACTION [INFO ℹ️]] Saltando mapeo para '{country}' (en lista de omisión).", flush=True)
             mapping_results[country] = country
         else:
             countries_to_translate.append(country)
     
-    print(f"[TRANSFORMATION [START 🔄]] Traduciendo {len(countries_to_translate)} países en lote...", flush=True)
+    print(f"[TRANSFORMATION [START ▶️]] Traduciendo {len(countries_to_translate)} países en lote...", flush=True)
     translated_dict = translate_batch_custom(countries_to_translate, prefix="El país llamado ", separator="|||", max_length=4000)
     
     countries_dic = _build_countries_dic()
@@ -1081,13 +1081,13 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     dest_project, dest_dataset, _ = dest_parts
     aux_table = f"{dest_project}.{dest_dataset}.{config.get('temp_table_name', 'temp_country_mapping')}"
     
-    print(f"[LOAD [START 📤]] Subiendo tabla auxiliar {aux_table} con datos de mapeo...", flush=True)
+    print(f"[LOAD [START ▶️]] Subiendo tabla auxiliar {aux_table} con datos de mapeo...", flush=True)
     pandas_gbq.to_gbq(mapping_df, destination_table=aux_table, project_id=dest_project, if_exists="replace", credentials=creds)
     
     sql_script = _build_update_sql(aux_table, client)
     print("[TRANSFORMATION [SUCCESS ✅]] SQL generado para actualizar la tabla destino.", flush=True)
     print(sql_script, flush=True)
-    print("[END [FINISHED 🏁]] Proceso finalizado.", flush=True)
+    print("[END [FINISHED ✅]] Proceso finalizado.", flush=True)
     
     return sql_script
 
@@ -1115,7 +1115,7 @@ def SQL_generate_deal_ordinal_str(params):
     Retorna:
         str: Script SQL generado.
     """
-    print("[START 🚀] Iniciando generación del SQL para ordinal de negocios...", flush=True)
+    print("[START ▶️] Iniciando generación del SQL para ordinal de negocios...", flush=True)
     table_source = params["table_source"]
     table_destination = params["table_destination"]
     contact_id_field = params["contact_id_field"]
@@ -1148,7 +1148,7 @@ LEFT JOIN deals_filtered f
   AND src.{deal_id_field} = f.{deal_id_field}
 ;
 """.strip()
-    print("[END [FINISHED 🏁]] SQL para ordinal de negocios generado.\n", flush=True)
+    print("[END [FINISHED ✅]] SQL para ordinal de negocios generado.\n", flush=True)
     return SQL_script
 
 # ----------------------------------------------------------------------------
@@ -1180,7 +1180,7 @@ def SQL_generate_join_tables_str(params: dict) -> str:
     from google.cloud import bigquery, secretmanager
     from google.oauth2 import service_account
 
-    print("[START 🚀] Iniciando generación del SQL para unión de tablas...", flush=True)
+    print("[START ▶️] Iniciando generación del SQL para unión de tablas...", flush=True)
     table_source_primary = params["table_source_primary"]
     table_source_primary_id_field = params["table_source_primary_id_field"]
     table_source_secondary = params["table_source_secondary"]
@@ -1209,7 +1209,7 @@ def SQL_generate_join_tables_str(params: dict) -> str:
 
     def get_table_columns(full_table_name: str):
         proj, dset, tbl = split_dataset_table(full_table_name)
-        print(f"[EXTRACTION [START ⏳]] Obteniendo columnas de {full_table_name}...", flush=True)
+        print(f"[EXTRACTION [START ▶️]] Obteniendo columnas de {full_table_name}...", flush=True)
         if os.environ.get("GOOGLE_CLOUD_PROJECT"):
             secret_id = params.get("json_keyfile_GCP_secret_id")
             if not secret_id:
@@ -1275,7 +1275,7 @@ SELECT
 {join_clause}
 ;
 """.strip()
-    print("[END [FINISHED 🏁]] SQL para unión de tablas generado.\n", flush=True)
+    print("[END [FINISHED ✅]] SQL para unión de tablas generado.\n", flush=True)
     return SQL_script
 
 
@@ -1304,7 +1304,7 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     from google.oauth2 import service_account
     import pandas_gbq
 
-    print("[START 🚀] Iniciando generación del SQL para agregar nuevas columnas desde mapeo...", flush=True)
+    print("[START ▶️] Iniciando generación del SQL para agregar nuevas columnas desde mapeo...", flush=True)
     source_table = config.get("source_table_to_add_fields")
     source_field = config.get("source_table_to_add_fields_reference_field_name")
     ref_df = config.get("referece_table_for_new_values_df")
@@ -1319,7 +1319,7 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     if not isinstance(ref_field_names_dic, dict) or not ref_field_names_dic:
         raise ValueError("[VALIDATION [ERROR ❌]] 'referece_table_for_new_values_field_names_dic' debe ser un diccionario no vacío.")
     
-    print("[METRICS [INFO 📊]] Parámetros obligatorios validados.", flush=True)
+    print("[METRICS [INFO ℹ️]] Parámetros obligatorios validados.", flush=True)
     
     def _normalize_text(texto: str) -> str:
         texto = texto.lower().strip()
@@ -1402,7 +1402,7 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     if df_source.empty:
         print("[EXTRACTION [WARNING ⚠️]] No se encontraron valores en la tabla source.", flush=True)
         return ("", pd.DataFrame())
-    print(f"[EXTRACTION [INFO 📊]] Se encontraron {len(df_source)} valores únicos.", flush=True)
+    print(f"[EXTRACTION [INFO ℹ️]] Se encontraron {len(df_source)} valores únicos.", flush=True)
     
     reference_mapping = _build_reference_mapping(ref_df, ref_field_names_list)
     mapping_results = _apply_mapping(df_source, reference_mapping)
@@ -1422,7 +1422,7 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     dest_project, dest_dataset, _ = parts
     aux_table = f"{dest_project}.{dest_dataset}.temp_new_columns_mapping"
     
-    print(f"[LOAD [START 📤]] Subiendo tabla auxiliar {aux_table}...", flush=True)
+    print(f"[LOAD [START ▶️]] Subiendo tabla auxiliar {aux_table}...", flush=True)
     pandas_gbq.to_gbq(mapping_df, destination_table=aux_table, project_id=dest_project, if_exists="replace", credentials=client._credentials)
     
     join_fields = [ col for col in ref_field_names_list if ref_field_names_dic.get(col, False) ]
@@ -1436,7 +1436,7 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     )
     drop_sql = f"DROP TABLE `{aux_table}`;"
     sql_script = update_sql + "\n" + drop_sql
-    print("[END [FINISHED 🏁]] SQL para nuevas columnas generado.\n", flush=True)
+    print("[END [FINISHED ✅]] SQL para nuevas columnas generado.\n", flush=True)
     return sql_script, mapping_df
 
 
@@ -1469,7 +1469,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
     import pandas_gbq
     from rapidfuzz import process, fuzz  # Asegúrate de tener rapidfuzz instalado
 
-    print("[START 🚀] Iniciando normalización de cadenas...", flush=True)
+    print("[START ▶️] Iniciando normalización de cadenas...", flush=True)
     source_table = config.get("source_table_to_normalize")
     source_field = config.get("source_table_to_normalize_field_name")
     manual_df = config.get("referece_table_for_normalization_manual_df")
@@ -1552,7 +1552,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
                     print(f"[TRANSFORMATION [ERROR ❌]] No se encontró mapeo para '{raw}'. Se asigna: {rapidfuzz_no_pass_value}", flush=True)
         return mapping_results, fuzzy_results_list
 
-    print(f"[EXTRACTION [START ⏳]] Extrayendo valores únicos de `{source_field}` desde {source_table}...", flush=True)
+    print(f"[EXTRACTION [START ▶️]] Extrayendo valores únicos de `{source_field}` desde {source_table}...", flush=True)
     source_project = source_table.split(".")[0]
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
         secret_id = config.get("json_keyfile_GCP_secret_id")
@@ -1589,7 +1589,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
     dest_project, dest_dataset, _ = from_parts
     aux_table = f"{dest_project}.{dest_dataset}.temp_normalized_strings"
     
-    print(f"[LOAD [START 📤]] Subiendo tabla auxiliar {aux_table} con el mapeo...", flush=True)
+    print(f"[LOAD [START ▶️]] Subiendo tabla auxiliar {aux_table} con el mapeo...", flush=True)
     pandas_gbq.to_gbq(mapping_df,
                         destination_table=aux_table,
                         project_id=dest_project,
@@ -1614,6 +1614,6 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
         )
     drop_sql = f"DROP TABLE `{aux_table}`;"
     sql_script = update_sql + "\n" + drop_sql
-    print("[END [FINISHED 🏁]] SQL para normalización generado.\n", flush=True)
+    print("[END [FINISHED ✅]] SQL para normalización generado.\n", flush=True)
     return sql_script, pd.DataFrame(fuzzy_results_list)
 
