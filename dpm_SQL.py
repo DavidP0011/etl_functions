@@ -533,32 +533,63 @@ WHERE {where_clause}
 # ----------------------------------------------------------------------------
 def SQL_generate_country_from_phone(config: dict) -> str:
     """
-    Genera un script SQL que extrae datos de una tabla de contactos y determina el país a partir
-    del número telefónico, aplicando procesamiento en lotes y actualizando la tabla destino.
+    Genera un script SQL para actualizar una tabla destino a partir de datos extraídos y procesados de:
+    
+      1. Una tabla de contactos, de la cual se extraen los números telefónicos (campo indicado en 
+         "source_contact_phone_field") y el identificador de cada contacto (campo "source_contact_id_field_name").
+         - Se preprocesan los números: se les añade un prefijo por defecto (por ejemplo, "+34") si no lo tienen.
+         - Se determina el país del número utilizando la librería 'phonenumbers'; si es posible, se obtiene 
+           el nombre canónico del país mediante 'pycountry'.
+         - El procesamiento se realiza en lotes para optimizar el rendimiento en grandes volúmenes.
+         
+      2. Una tabla de llamadas (especificada en "source_engagement_call_table"), de la cual se extrae el estatus de cada llamada
+         (campo "source_engagement_call_status_field_name") y se asigna un ranking (para ordenar o priorizar los estatus).
+         - Se utiliza un campo común ("source_engagement_call_id_match_contact_field_name") para relacionar cada llamada con su contacto.
+    
+    Posteriormente, se realiza un merge (join) entre ambos conjuntos de datos utilizando el identificador de contacto,
+    generando un DataFrame que incluye:
+      - El identificador del contacto.
+      - El teléfono y el país determinado a partir de dicho teléfono.
+      - El estatus de la llamada.
+    
+    Este DataFrame se carga en una tabla auxiliar en BigQuery, cuyo nombre se define mediante la key "temp_table_name"
+    (por defecto, "temp_country_mapping_from_phone"). Finalmente, se genera un script SQL que:
+      - Realiza un LEFT JOIN entre la tabla destino y la tabla auxiliar para actualizar o agregar dos campos:
+            * "destination_country_mapped_field_name": con el país derivado del teléfono.
+            * "destination_call_status_field_name": con el estatus de la llamada.
+      - Incluye, al final, la instrucción para eliminar la tabla auxiliar (DROP TABLE) si la key 
+        "temp_table_erase" es True. En esta versión, al configurar "temp_table_erase" en False, la tabla auxiliar se conserva.
     
     Parámetros en config:
-      - source_table (str): Tabla de contactos.
-      - source_contact_phone_field (str): Campo con el teléfono.
-      - source_contact_id_field_name (str): Campo identificador del contacto.
-      - source_engagement_call_table (str): Tabla de llamadas.
-      - source_engagement_call_id_match_contact_field_name (str): Campo para hacer match entre llamadas y contactos.
-      - source_engagement_call_status_field_name (str): Campo de estatus de la llamada.
-      - destination_table (str): Tabla destino.
-      - destination_id_match_contact_field_name (str): Campo para hacer match en la tabla destino.
-      - destination_country_mapped_field_name (str): Campo donde se mapea el país.
-      - destination_call_status_field_name (str): Campo donde se mapea el estatus de la llamada.
-      - default_phone_prefix (str, opcional): Prefijo por defecto. Por defecto "+34".
-      - json_keyfile_GCP_secret_id (str): Secret ID para obtener credenciales en GCP.
+      - source_table (str): Nombre completo de la tabla de contactos (formato "proyecto.dataset.tabla").
+      - source_contact_phone_field (str): Campo que contiene el número telefónico del contacto.
+      - source_contact_id_field_name (str): Campo identificador del contacto en la tabla de contactos.
+      - source_engagement_call_table (str): Nombre completo de la tabla de llamadas (formato "proyecto.dataset.tabla").
+      - source_engagement_call_id_match_contact_field_name (str): Campo que relaciona las llamadas con los contactos.
+      - source_engagement_call_status_field_name (str): Campo que contiene el estatus de la llamada.
+      - destination_table (str): Nombre completo de la tabla destino (formato "proyecto.dataset.tabla").
+      - destination_id_match_contact_field_name (str): Campo de la tabla destino para hacer match con el contacto.
+      - destination_country_mapped_field_name (str): Campo en la tabla destino donde se almacenará el país obtenido.
+      - destination_call_status_field_name (str): Campo en la tabla destino donde se almacenará el estatus de la llamada.
+      - default_phone_prefix (str, opcional): Prefijo telefónico a usar si el número no lo tiene (por defecto "+34").
+      - json_keyfile_GCP_secret_id (str): ID del secret para obtener credenciales desde Secret Manager en GCP.
       - json_keyfile_colab (str): Ruta al archivo JSON de credenciales para entornos no GCP.
+      - temp_table_name (str): Nombre de la tabla auxiliar en la que se cargará el DataFrame de mapeo. 
+                                   Por defecto, "temp_country_mapping_from_phone".
+      - temp_table_erase (bool): Indica si se debe eliminar la tabla auxiliar tras generar el JOIN.
+                                   Si es False, la tabla auxiliar se conservará.
+    
     Retorna:
-        str: El script SQL generado para actualizar la tabla destino.
+        str: Un script SQL (JOIN y, opcionalmente, DROP TABLE) listo para ejecutarse que actualiza la tabla destino.
     """
+
     import os, time, json, re, unicodedata
     import pandas as pd
     from google.cloud import bigquery, secretmanager
     from google.oauth2 import service_account
     import pandas_gbq
 
+    # --- Autenticación ---
     print("[AUTHENTICATION [INFO] 🔐] Iniciando autenticación...", flush=True)
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
         secret_id = config.get("json_keyfile_GCP_secret_id")
@@ -581,15 +612,13 @@ def SQL_generate_country_from_phone(config: dict) -> str:
         creds = service_account.Credentials.from_service_account_file(json_path)
         print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
     
-    source_project = config["source_table"].split(".")[0]
-    client = bigquery.Client(project=source_project, credentials=creds)
-    
-    # Extracción de datos de contactos
+    # --- Extracción de datos de contactos ---
     print("[EXTRACTION [START ⏳]] Extrayendo datos de la tabla de contactos...", flush=True)
     query_source = f"""
         SELECT {config['source_contact_id_field_name']}, {config['source_contact_phone_field']}
         FROM `{config['source_table']}`
     """
+    client = bigquery.Client(project=config["source_table"].split(".")[0], credentials=creds)
     df_contacts = client.query(query_source).to_dataframe()
     if df_contacts.empty:
         print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la tabla de contactos.", flush=True)
@@ -598,7 +627,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     df_contacts.rename(columns={config['source_contact_phone_field']: "phone"}, inplace=True)
     df_contacts = df_contacts[df_contacts["phone"].notna() & (df_contacts["phone"].str.strip() != "")]
     
-    # Procesamiento de teléfonos (por lotes)
+    # --- Procesamiento de teléfonos (por lotes) ---
     print("[TRANSFORMATION [START 🔄]] Preprocesando y procesando teléfonos en lotes...", flush=True)
     def _preprocess_phone(phone: str, default_prefix: str = config.get("default_phone_prefix", "+34")) -> str:
         if phone and isinstance(phone, str):
@@ -650,7 +679,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
 
     df_contacts["country_name_iso"], num_batches, error_batches = _process_phone_numbers(df_contacts["phone"], batch_size=1000)
     
-    # Extracción de estatus de llamadas
+    # --- Extracción de estatus de llamadas ---
     print("[EXTRACTION [START ⏳]] Extrayendo estatus de llamadas por contacto...", flush=True)
     query_calls = f"""
         SELECT {config['source_engagement_call_id_match_contact_field_name']} AS contact_id,
@@ -693,11 +722,14 @@ def SQL_generate_country_from_phone(config: dict) -> str:
         porcentaje = (count/total_registros)*100
         print(f"    - {country}: {count} registros ({porcentaje:.2f}%)", flush=True)
     
+    # --- Carga de datos: Subir la tabla auxiliar ---
     parts = config["destination_table"].split(".")
     if len(parts) != 3:
         raise ValueError("[VALIDATION [ERROR ❌]] 'destination_table' debe tener el formato 'proyecto.dataset.tabla'.")
     dest_project, dest_dataset, _ = parts
-    aux_table = f"{dest_project}.{dest_dataset}.temp_country_phone_mapping"
+    # Usar el nombre de tabla temporal definido en el config, con default "temp_country_mapping_from_phone"
+    temp_table_name = config.get("temp_table_name", "temp_country_mapping_from_phone")
+    aux_table = f"{dest_project}.{dest_dataset}.{temp_table_name}"
     
     print(f"\n[LOAD [START 📤]] Subiendo tabla auxiliar {aux_table}...", flush=True)
     pandas_gbq.to_gbq(mapping_df,
@@ -706,6 +738,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
                         if_exists="replace",
                         credentials=creds)
     
+    # --- Generación del script SQL final ---
     def _build_update_sql(aux_table: str, client: bigquery.Client) -> str:
         try:
             dest_table = client.get_table(config["destination_table"])
@@ -731,7 +764,10 @@ def SQL_generate_country_from_phone(config: dict) -> str:
                 f"LEFT JOIN `{aux_table}` m\n"
                 f"  ON d.{config['destination_id_match_contact_field_name']} = m.{config['source_contact_id_field_name']};"
             )
-        drop_sql = f"DROP TABLE `{aux_table}`;"
+        # Si temp_table_erase es False, no se elimina la tabla auxiliar
+        drop_sql = ""
+        if config.get("temp_table_erase", True):
+            drop_sql = f"DROP TABLE `{aux_table}`;"
         return join_sql + "\n" + drop_sql
     
     sql_script = _build_update_sql(aux_table, client)
@@ -740,6 +776,9 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     print("[END [FINISHED 🏁]] Proceso finalizado.\n", flush=True)
     
     return sql_script
+
+
+
 
 
 # ----------------------------------------------------------------------------
