@@ -97,12 +97,12 @@ def SQL_generate_report_str(params: dict) -> str:
 Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman inmediatamente. Se deben usar mensajes con prefijos estandarizados para cada fase del proceso:
 
 - **Inicio y finalización:**
-  - `[START 🚀]` → Inicio del proceso o tarea.
+  - `[START ▶️]` → Inicio del proceso o tarea.
   - `[END [FINISHED 🏁]]` → Finalización exitosa.
-  - `[END [FAILED 💥]]` → Finalización con errores.
+  - `[END [FAILED ❌]]` → Finalización con errores.
 
 - **Autenticación:**
-  - `[AUTHENTICATION [INFO] 🔐]` → Información sobre el proceso de autenticación.
+  - `[AUTHENTICATION [INFOℹ️]]` → Información sobre el proceso de autenticación.
   - `[AUTHENTICATION [SUCCESS ✅]]` → Autenticación completada con éxito.
   - `[AUTHENTICATION [ERROR ❌]]` → Error durante la autenticación.
 
@@ -113,19 +113,19 @@ Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman inme
   - `[EXTRACTION [ERROR ❌]]` → Error durante la extracción.
 
 - **Transformación:**
-  - `[TRANSFORMATION [START 🔄]]` → Inicio de la transformación de datos.
+  - `[TRANSFORMATION [START ▶️]]` → Inicio de la transformación de datos.
   - `[TRANSFORMATION [SUCCESS ✅]]` → Transformación realizada correctamente.
   - `[TRANSFORMATION [WARNING ⚠️]]` → Advertencia durante la transformación.
   - `[TRANSFORMATION [ERROR ❌]]` → Error durante la transformación.
 
 - **Carga (Load):**
-  - `[LOAD [START 📤]]` → Inicio de la carga de datos.
+  - `[LOAD [START ▶️]]` → Inicio de la carga de datos.
   - `[LOAD [SUCCESS ✅]]` → Carga completada correctamente.
   - `[LOAD [WARNING ⚠️]]` → Advertencia durante la carga.
   - `[LOAD [ERROR ❌]]` → Error en la carga.
 
 - **Métricas y Reporte:**
-  - `[METRICS [INFO 📊]]` → Información y estadísticas del proceso.
+  - `[METRICS [INFO ℹ️]]` → Información y estadísticas del proceso.
 
 ### 5.2. Organización Visual
 - **Separadores y Encabezados:**  
@@ -221,7 +221,7 @@ def load_custom_libs(config_list: list) -> None:
         else:
             raw_url = module_path
         try:
-            print(f"[EXTRACTION [START ⏳]] Descargando módulo desde GitHub: {raw_url}", flush=True)
+            print(f"[EXTRACTION [START ▶️]] Descargando módulo desde GitHub: {raw_url}", flush=True)
             response = requests.get(raw_url)
             if response.status_code != 200:
                 error_details = response.text[:200].strip()
@@ -253,12 +253,12 @@ def load_custom_libs(config_list: list) -> None:
         module_name, _ = os.path.splitext(module_file)
         if module_dir not in sys.path:
             sys.path.insert(0, module_dir)
-            print(f"[TRANSFORMATION [INFO 🔄]] Directorio agregado al sys.path: {module_dir}", flush=True)
+            print(f"[TRANSFORMATION [INFO ℹ️]] Directorio agregado al sys.path: {module_dir}", flush=True)
         if module_name in sys.modules:
             del sys.modules[module_name]
-            print(f"[TRANSFORMATION [INFO 🔄]] Eliminada versión previa del módulo: {module_name}", flush=True)
+            print(f"[TRANSFORMATION [INFO ℹ️]] Eliminada versión previa del módulo: {module_name}", flush=True)
         try:
-            print(f"[LOAD [START 📤]] Importando módulo: {module_name}", flush=True)
+            print(f"[LOAD [START ▶️]] Importando módulo: {module_name}", flush=True)
             module = importlib.import_module(module_name)
             module = importlib.reload(module)
             print(f"[LOAD [SUCCESS ✅]] Módulo '{module_name}' importado correctamente.", flush=True)
@@ -268,7 +268,7 @@ def load_custom_libs(config_list: list) -> None:
             return None, module_name
 
     def _print_module_report(module_name: str, module_path: str, mod_date: datetime.datetime, selected_objects: dict) -> None:
-        print("\n[METRICS [INFO 📊]] Informe de carga del módulo:", flush=True)
+        print("\n[METRICS [INFO ℹ️]] Informe de carga del módulo:", flush=True)
         print(f"  - Módulo: {module_name}", flush=True)
         print(f"  - Ruta: {module_path}", flush=True)
         print(f"  - Fecha de última modificación: {mod_date}", flush=True)
@@ -281,10 +281,10 @@ def load_custom_libs(config_list: list) -> None:
                 doc = inspect.getdoc(obj) or "Sin documentación"
                 first_line = doc.split("\n")[0]
                 print(f"      • {name} ({obj_type}): {first_line}", flush=True)
-        print(f"\n[END [FINISHED 🏁]] Módulo '{module_name}' actualizado e importado en globals().\n", flush=True)
+        print(f"\n[END [FINISHED ✅]] Módulo '{module_name}' actualizado e importado en globals().\n", flush=True)
 
     # ────────────────────────────── Proceso Principal ──────────────────────────────
-    _imprimir_encabezado("[START 🚀] Iniciando carga de módulos personalizados")
+    _imprimir_encabezado("[START ▶️] Iniciando carga de módulos personalizados")
     for config in config_list:
         module_host = config.get("module_host")
         module_path = config.get("module_path")
