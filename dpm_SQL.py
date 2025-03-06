@@ -781,6 +781,9 @@ def SQL_generate_country_from_phone(config: dict) -> str:
 
 
 
+
+
+
 # ----------------------------------------------------------------------------
 # SQL_generate_country_name_mapping()
 # ----------------------------------------------------------------------------
@@ -830,6 +833,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     import time
     import os, json
     from google.oauth2 import service_account
+
     # --- Autenticación ---
     print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
@@ -890,48 +894,70 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
                 return row[field]
         return None
 
-    def translate_batch_custom(words, prefix="El país llamado ", separator="|||", max_length=4000):
+    # --- Actualización en la lógica de traducción ---
+    def translate_batch_custom(words, prefix="El país llamado ", separator="|||", max_length=4000) -> dict:
         """
-        Traduce una lista de palabras de español a inglés en pocas peticiones (agrupadas en chunks).
-        Se antepone a cada palabra el prefijo y, tras traducir en bloque, se elimina dicho prefijo.
-        Retorna un diccionario {palabra_original: traducción_sin prefijo}.
-        Implementa reintentos hasta 3 veces en caso de error en la API.
+        Traduce una lista de palabras de español a inglés agrupándolas en chunks.
+        Implementa reintentos y, en caso de fallo en la traducción en bloque, hace un fallback
+        traduciendo cada palabra individualmente, siguiendo la lógica implementada en la función translate().
         """
         translator = Translator()
-        english_prefix = translator.translate(prefix, src='es', dest='en').text.strip()
+        try:
+            english_prefix = translator.translate(prefix, src='es', dest='en').text.strip()
+        except Exception as e:
+            print(f"[TRANSLATION WARNING] Error al traducir el prefijo: {e}. Se usará un prefijo por defecto.", flush=True)
+            english_prefix = "The country called"
+    
         results = {}
         chunk_phrases = []
         chunk_original_words = []
         current_length = 0
-
+    
         def process_chunk():
             nonlocal results, chunk_phrases, chunk_original_words, current_length
             if not chunk_phrases:
                 return
             attempts = 0
+            translated_phrases = None
+            # Intento de traducción en bloque con reintentos
             while attempts < 3:
                 try:
                     translated_objects = translator.translate(chunk_phrases, src='es', dest='en')
                     if not isinstance(translated_objects, list):
                         translated_objects = [translated_objects]
-                    translated_phrases = [obj.text for obj in translated_objects]
-                    break  # Salir del ciclo si la traducción fue exitosa
+                    translated_phrases = [obj.text if (obj is not None and hasattr(obj, 'text')) else None 
+                                          for obj in translated_objects]
+                    if any(tp is None for tp in translated_phrases):
+                        raise Exception("La traducción en bloque devolvió None para alguna palabra")
+                    break
                 except Exception as e:
                     attempts += 1
                     if attempts >= 3:
-                        raise e
-                    time.sleep(1)  # Espera 1 segundo antes de reintentar
-            if len(translated_phrases) != len(chunk_original_words):
-                raise ValueError("El número de frases traducidas no coincide con el número de palabras originales en el chunk.")
+                        # Fallback: traducir cada palabra individualmente
+                        translated_phrases = []
+                        for word in chunk_original_words:
+                            try:
+                                t = translator.translate(word, src='es', dest='en')
+                                if t is not None and hasattr(t, 'text'):
+                                    translated_phrases.append(t.text)
+                                else:
+                                    translated_phrases.append(word)
+                            except Exception:
+                                translated_phrases.append(word)
+                        break
+                    time.sleep(1)
+    
             prefix_pattern = re.compile(r'^' + re.escape(english_prefix), flags=re.IGNORECASE)
             for orig, phrase in zip(chunk_original_words, translated_phrases):
+                if phrase is None:
+                    phrase = orig
                 phrase = phrase.strip()
                 translated_word = prefix_pattern.sub('', phrase).strip()
                 results[orig] = translated_word
             chunk_phrases.clear()
             chunk_original_words.clear()
             current_length = 0
-
+    
         for word in words:
             if not word:
                 continue
@@ -1045,6 +1071,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
             countries_to_translate.append(country)
     
     print(f"[TRANSFORMATION [START ▶️]] Traduciendo {len(countries_to_translate)} países en lote...", flush=True)
+    # Aquí se aplica la nueva lógica de traducción robusta con fallback:
     translated_dict = translate_batch_custom(countries_to_translate, prefix="El país llamado ", separator="|||", max_length=4000)
     
     countries_dic = _build_countries_dic()
@@ -1097,6 +1124,11 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     print("[END [FINISHED ✅]] Proceso finalizado.", flush=True)
     
     return sql_script
+
+
+
+
+
 
 
 
