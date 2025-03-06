@@ -98,7 +98,7 @@ Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman inme
 
 - **Inicio y finalización:**
   - `[START ▶️]` → Inicio del proceso o tarea.
-  - `[END [FINISHED 🏁]]` → Finalización exitosa.
+  - `[END [FINISHED ✅]]` → Finalización exitosa.
   - `[END [FAILED ❌]]` → Finalización con errores.
 
 - **Autenticación:**
