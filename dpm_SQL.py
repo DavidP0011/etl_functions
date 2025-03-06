@@ -894,7 +894,8 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
         """
         Traduce una lista de palabras de español a inglés en pocas peticiones (agrupadas en chunks).
         Se antepone a cada palabra el prefijo y, tras traducir en bloque, se elimina dicho prefijo.
-        Retorna un diccionario {palabra_original: traducción_sin_prefijo}.
+        Retorna un diccionario {palabra_original: traducción_sin prefijo}.
+        Implementa reintentos hasta 3 veces en caso de error en la API.
         """
         translator = Translator()
         english_prefix = translator.translate(prefix, src='es', dest='en').text.strip()
@@ -907,13 +908,19 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
             nonlocal results, chunk_phrases, chunk_original_words, current_length
             if not chunk_phrases:
                 return
-            try:
-                translated_objects = translator.translate(chunk_phrases, src='es', dest='en')
-                if not isinstance(translated_objects, list):
-                    translated_objects = [translated_objects]
-                translated_phrases = [obj.text for obj in translated_objects]
-            except Exception as e:
-                translated_phrases = [translator.translate(phrase, src='es', dest='en').text for phrase in chunk_phrases]
+            attempts = 0
+            while attempts < 3:
+                try:
+                    translated_objects = translator.translate(chunk_phrases, src='es', dest='en')
+                    if not isinstance(translated_objects, list):
+                        translated_objects = [translated_objects]
+                    translated_phrases = [obj.text for obj in translated_objects]
+                    break  # Salir del ciclo si la traducción fue exitosa
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= 3:
+                        raise e
+                    time.sleep(1)  # Espera 1 segundo antes de reintentar
             if len(translated_phrases) != len(chunk_original_words):
                 raise ValueError("El número de frases traducidas no coincide con el número de palabras originales en el chunk.")
             prefix_pattern = re.compile(r'^' + re.escape(english_prefix), flags=re.IGNORECASE)
@@ -1090,6 +1097,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     print("[END [FINISHED ✅]] Proceso finalizado.", flush=True)
     
     return sql_script
+
 
 
 
