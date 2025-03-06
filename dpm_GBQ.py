@@ -19,7 +19,9 @@ from google.oauth2 import service_account
 # __________________________________________________________________________________________________________________________________________________________
 def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
     """
-    Retorna un DataFrame con la información de datasets, tablas y campos de un proyecto de BigQuery.
+    Retorna un DataFrame con la información de datasets, tablas y campos de un proyecto de BigQuery,
+    añadiendo al final las columnas 'fecha_actualizacion_GBQ' (fecha en la que la tabla fue creada o modificada)
+    y 'fecha_actualizacion_df' (fecha en la que se creó el DataFrame).
 
     Args:
         config (dict):
@@ -40,7 +42,9 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
                 'field_type',
                 'num_rows',
                 'num_columns',
-                'size_mb'
+                'size_mb',
+                'fecha_actualizacion_GBQ',
+                'fecha_actualizacion_df'
             ]
 
     Raises:
@@ -139,10 +143,17 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
                     num_rows_int = table_ref.num_rows
                     num_columns_int = len(table_ref.schema)
                     size_mb_float = table_ref.num_bytes / (1024 * 1024)
-                    fields_list = table_ref.schema
+                    
+                    # Se obtiene la fecha de actualización: se prefiere 'created', si no se encuentra se utiliza 'modified'
+                    fecha_actualizacion_GBQ_str = None
+                    if hasattr(table_ref, 'created') and table_ref.created:
+                        fecha_actualizacion_GBQ_str = table_ref.created.strftime("%Y-%m-%d %H:%M:%S")
+                    elif hasattr(table_ref, 'modified') and table_ref.modified:
+                        fecha_actualizacion_GBQ_str = table_ref.modified.strftime("%Y-%m-%d %H:%M:%S")
+                    
                     print(f"[METRICS [INFO ℹ️]] Procesando tabla: {table_name_str} | Filas: {num_rows_int} | Columnas: {num_columns_int} | Tamaño: {round(size_mb_float,2)} MB", flush=True)
-                    if fields_list:
-                        for field in fields_list:
+                    if table_ref.schema:
+                        for field in table_ref.schema:
                             tables_info_list.append({
                                 'project_id': project_id_str,
                                 'dataset_id': dataset_id_str,
@@ -151,7 +162,8 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
                                 'field_type': field.field_type,
                                 'num_rows': num_rows_int,
                                 'num_columns': num_columns_int,
-                                'size_mb': round(size_mb_float, 2)
+                                'size_mb': round(size_mb_float, 2),
+                                'fecha_actualizacion_GBQ': fecha_actualizacion_GBQ_str
                             })
                     else:
                         tables_info_list.append({
@@ -162,7 +174,8 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
                             'field_type': None,
                             'num_rows': num_rows_int,
                             'num_columns': num_columns_int,
-                            'size_mb': round(size_mb_float, 2)
+                            'size_mb': round(size_mb_float, 2),
+                            'fecha_actualizacion_GBQ': fecha_actualizacion_GBQ_str
                         })
                 except Exception as e:
                     print(f"[EXTRACTION [ERROR ❌]] Error al procesar la tabla en {full_dataset_id_str}: {e}", flush=True)
@@ -176,7 +189,8 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
                 'field_type': None,
                 'num_rows': None,
                 'num_columns': None,
-                'size_mb': None
+                'size_mb': None,
+                'fecha_actualizacion_GBQ': None
             })
 
     # ────────────────────────────── CONVERSIÓN A DATAFRAME ──────────────────────────────
@@ -186,6 +200,9 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
         print(f"[TRANSFORMATION [SUCCESS ✅]] DataFrame generado exitosamente con {df_tables_fields.shape[0]} registros.", flush=True)
     except Exception as e:
         raise RuntimeError(f"[TRANSFORMATION [ERROR ❌]] Error al convertir la información a DataFrame: {e}")
+
+    # Se añade la fecha de creación del DataFrame (constante para todas las filas)
+    df_tables_fields["fecha_actualizacion_df"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
 
     print("\n🔹🔹🔹 [END [FINISHED 🏁]] Esquema de BigQuery extraído y procesado correctamente. 🔹🔹🔹\n", flush=True)
     return df_tables_fields
