@@ -729,4 +729,4 @@ def table_DF_to_various_targets(params: dict) -> None:
         print(f"\n🔹🔹🔹 [END [FAILED ❌]] Proceso finalizado con errores: {error_e} 🔹🔹🔹\n", flush=True)
         raise
 
-    print("\n🔹🔹🔹 [END [FINISHED 🏁]] Escritura completada exitosamente. 🔹🔹🔹\n", flush=True)
+    print("\n🔹🔹🔹 [END [FINISHED ✅]] Escritura completada exitosamente. 🔹🔹🔹\n", flush=True)
