@@ -462,42 +462,50 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
 # table_DF_to_various_targets()
 # ----------------------------------------------------------------------------
 
-def table_DF_to_various_targets(df: pd.DataFrame, params: dict) -> None:
+# @title table_DF_to_various_targets()
+def table_DF_to_various_targets(params: dict) -> None:
     """
     Escribe un DataFrame en distintos destinos (archivo local, Google Sheets, BigQuery o GCS)
-    según los parámetros indicados en 'params'.
-    
-    Parámetros en params:
-      - file_target_table_path (str, opcional): Ruta del archivo destino. Ej: "/ruta/al/archivo.csv" o ".xlsx".
-      - spreadsheet_target_table_id (str, opcional): URL o ID de la hoja de cálculo destino.
-      - spreadsheet_target_table_worksheet_name (str, opcional): Nombre de la pestaña en la hoja de cálculo destino.
-      - GBQ_target_table_name (str, opcional): Nombre de la tabla en BigQuery destino (ej: "proyecto.dataset.tabla").
-      - GCS_target_table_bucket_name (str, opcional): Nombre del bucket en Google Cloud Storage destino.
-      - GCS_target_table_file_path (str, opcional): Ruta del archivo en GCS destino.
-      - json_keyfile_GCP_secret_id (str, requerido en GCP): Secret ID del JSON de credenciales alojado en Secret Manager.
-      - json_keyfile_colab (str, requerido en Colab/local): Ruta al archivo JSON de credenciales.
-      
-    Retorna:
-      None
-    
+    según la configuración definida en el diccionario de entrada.
+
+    Args:
+        params (dict):
+            - df (pd.DataFrame) [requerido]: DataFrame a exportar.
+            - file_target_table_path (str, opcional): Ruta del archivo destino. Ej: "/ruta/al/archivo.csv" o ".xlsx".
+            - spreadsheet_target_table_id (str, opcional): URL o ID de la hoja de cálculo destino.
+            - spreadsheet_target_table_worksheet_name (str, opcional): Nombre de la pestaña destino.
+            - GBQ_target_table_name (str, opcional): Nombre de la tabla destino en BigQuery (ej: "proyecto.dataset.tabla").
+            - GCS_target_table_bucket_name (str, opcional): Nombre del bucket destino en GCS.
+            - GCS_target_table_file_path (str, opcional): Ruta del archivo en GCS destino.
+            - json_keyfile_GCP_secret_id (str, requerido en entornos GCP): Secret ID del JSON de credenciales alojado en Secret Manager.
+            - json_keyfile_colab (str, requerido en entornos local/Colab): Ruta al archivo JSON de credenciales.
+
+    Returns:
+        None
+
     Raises:
-      RuntimeError: Si ocurre un error al escribir o procesar los datos.
-      ValueError: Si faltan parámetros obligatorios para identificar el destino de los datos.
+        ValueError: Si faltan parámetros obligatorios para identificar el destino o el DataFrame.
+        RuntimeError: Si ocurre un error durante la escritura o transformación de los datos.
     """
     import os
-    import re
     import io
     import pandas as pd
+    from google.oauth2.service_account import Credentials
 
-    # ────────────────────────────── Utilidades Comunes ──────────────────────────────
-    def _imprimir_encabezado(mensaje: str) -> None:
-        print(f"\n🔹🔹🔹 {mensaje} 🔹🔹🔹\n", flush=True)
+    # ────────────────────────────── INICIO DEL PROCESO ──────────────────────────────
+    print("\n🔹🔹🔹 [START ▶️] Iniciando escritura de DataFrame en destino configurado 🔹🔹🔹\n", flush=True)
 
-    def _validar_comun(params: dict) -> None:
-        if not (params.get('json_keyfile_GCP_secret_id') or params.get('json_keyfile_colab')):
-            raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro obligatorio 'json_keyfile_GCP_secret_id' o 'json_keyfile_colab' para autenticación.")
+    # ────────────────────────────── VALIDACIÓN DEL DATAFRAME ──────────────────────────────
+    df = params.get("df")
+    if df is None or not isinstance(df, pd.DataFrame):
+        raise ValueError("[VALIDATION [ERROR ❌]] Se debe proporcionar el DataFrame a exportar en la clave 'df' de params.")
+    print(f"[METRICS [INFO ℹ️]] DataFrame recibido con {df.shape[0]} filas y {df.shape[1]} columnas.", flush=True)
 
-    # ────────────────────────────── Detección del Destino ──────────────────────────────
+    # ────────────────────────────── VALIDACIÓN DE AUTENTICACIÓN ──────────────────────────────
+    if not (params.get('json_keyfile_GCP_secret_id') or params.get('json_keyfile_colab')):
+        raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro obligatorio 'json_keyfile_GCP_secret_id' o 'json_keyfile_colab' para autenticación.")
+
+    # ────────────────────────────── DETECCIÓN DEL DESTINO ──────────────────────────────
     def _es_target_archivo(params: dict) -> bool:
         return bool(params.get('file_target_table_path', '').strip())
 
@@ -513,48 +521,46 @@ def table_DF_to_various_targets(df: pd.DataFrame, params: dict) -> None:
     def _es_target_gcs(params: dict) -> bool:
         return bool(params.get('GCS_target_table_bucket_name', '').strip()) and bool(params.get('GCS_target_table_file_path', '').strip())
 
-    # ────────────────────────────── Destino – Archivo Local ──────────────────────────────
+    # ────────────────────────────── ESCRITURA – ARCHIVO LOCAL ──────────────────────────────
     def _escribir_archivo(params: dict, df: pd.DataFrame) -> None:
-        _imprimir_encabezado("[START 🚀] Iniciando escritura en archivo local")
-        file_path = params.get('file_target_table_path')
-        _, ext = os.path.splitext(file_path)
+        print("\n[LOAD [START ▶️]] Iniciando escritura en archivo local...", flush=True)
+        file_path_str = params.get('file_target_table_path')
+        _, ext = os.path.splitext(file_path_str)
         ext = ext.lower()
         try:
-            print(f"[WRITING [START ⏳]] Escribiendo DataFrame en el archivo '{file_path}'...", flush=True)
+            print(f"[LOAD [INFO ℹ️]] Escribiendo DataFrame en: {file_path_str}", flush=True)
             if ext in ['.xls', '.xlsx']:
-                engine = 'openpyxl'
-                df.to_excel(file_path, index=False, engine=engine)
+                engine_str = 'openpyxl'
+                df.to_excel(file_path_str, index=False, engine=engine_str)
             elif ext == '.csv':
-                df.to_csv(file_path, index=False)
+                df.to_csv(file_path_str, index=False)
             elif ext == '.tsv':
-                df.to_csv(file_path, sep='\t', index=False)
+                df.to_csv(file_path_str, sep='\t', index=False)
             else:
-                raise RuntimeError(f"[WRITING [ERROR ❌]] Extensión de archivo '{ext}' no soportada.")
-            print(f"[WRITING [SUCCESS ✅]] DataFrame escrito correctamente en '{file_path}'.", flush=True)
+                raise RuntimeError(f"[LOAD [ERROR ❌]] Extensión '{ext}' no soportada para escritura en archivo local.")
+            print(f"[LOAD [SUCCESS ✅]] DataFrame escrito exitosamente en '{file_path_str}'.", flush=True)
         except Exception as e:
-            error_message = f"[WRITING [ERROR ❌]] Error al escribir en el archivo '{file_path}': {e}"
-            print(error_message, flush=True)
-            raise RuntimeError(error_message)
+            raise RuntimeError(f"[LOAD [ERROR ❌]] Error al escribir en archivo local: {e}")
 
-    # ────────────────────────────── Destino – Google Sheets ──────────────────────────────
+    # ────────────────────────────── ESCRITURA – GOOGLE SHEETS ──────────────────────────────
     def _escribir_google_sheet(params: dict, df: pd.DataFrame) -> None:
+        print("\n[LOAD [START ▶️]] Iniciando escritura en Google Sheets...", flush=True)
+        import re
         from googleapiclient.discovery import build
         import json
-
         spreadsheet_id_raw = params.get("spreadsheet_target_table_id")
-        # Extraer ID si se proporcionó URL
         if "spreadsheets/d/" in spreadsheet_id_raw:
             match = re.search(r"/d/([a-zA-Z0-9-_]+)", spreadsheet_id_raw)
             if match:
-                spreadsheet_id = match.group(1)
+                spreadsheet_id_str = match.group(1)
             else:
                 raise ValueError("[VALIDATION [ERROR ❌]] No se pudo extraer el ID de la hoja de cálculo desde la URL proporcionada.")
         else:
-            spreadsheet_id = spreadsheet_id_raw
+            spreadsheet_id_str = spreadsheet_id_raw
 
-        worksheet_name = params.get("spreadsheet_target_table_worksheet_name")
-        if not spreadsheet_id or not worksheet_name:
-            raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'spreadsheet_target_table_id' o 'spreadsheet_target_table_worksheet_name'.")
+        worksheet_name_str = params.get("spreadsheet_target_table_worksheet_name")
+        if not spreadsheet_id_str or not worksheet_name_str:
+            raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'spreadsheet_target_table_id' o 'spreadsheet_target_table_worksheet_name' en params.")
 
         try:
             scope_list = [
@@ -563,178 +569,156 @@ def table_DF_to_various_targets(df: pd.DataFrame, params: dict) -> None:
             ]
             is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
             from google.oauth2.service_account import Credentials
-
             if is_gcp:
-                secret_id = params.get("json_keyfile_GCP_secret_id")
-                if not secret_id:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando Secret Manager para Google Sheets.", flush=True)
+                json_keyfile_GCP_secret_id_str = params.get("json_keyfile_GCP_secret_id")
+                if not json_keyfile_GCP_secret_id_str:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se requiere 'json_keyfile_GCP_secret_id'.")
+                print("[AUTHENTICATION [INFO ℹ️]] Entorno GCP detectado. Autenticando para Google Sheets mediante Secret Manager...", flush=True)
                 from google.cloud import secretmanager
-                project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-                if not project_id:
-                    raise ValueError("No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT'.")
+                project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
                 client_sm = secretmanager.SecretManagerServiceClient()
-                secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+                secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
                 response = client_sm.access_secret_version(name=secret_name)
                 secret_string = response.payload.data.decode("UTF-8")
                 secret_info = json.loads(secret_string)
-                creds = Credentials.from_service_account_info(secret_info, scopes=scope_list)
+                creds_local = Credentials.from_service_account_info(secret_info, scopes=scope_list)
             else:
-                json_keyfile = params.get("json_keyfile_colab")
-                if not json_keyfile:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile_colab'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno Colab detectado. Usando json_keyfile_colab para Google Sheets.", flush=True)
-                creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
+                json_keyfile_colab_str = params.get("json_keyfile_colab")
+                if not json_keyfile_colab_str:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se requiere 'json_keyfile_colab'.")
+                print("[AUTHENTICATION [INFO ℹ️]] Entorno local/Colab detectado. Autenticando para Google Sheets mediante archivo JSON...", flush=True)
+                creds_local = Credentials.from_service_account_file(json_keyfile_colab_str, scopes=scope_list)
 
-            service = build('sheets', 'v4', credentials=creds)
-            
-            # Convertir DataFrame a lista de listas (incluyendo encabezado)
-            values = [df.columns.tolist()] + df.astype(str).values.tolist()
-            body = {
-                "values": values
-            }
-            # Actualiza el rango completo de la pestaña (se asume que se sobreescribe la hoja)
-            range_name = worksheet_name
-            print(f"[WRITING [START ⏳]] Escribiendo datos en Google Sheets (Hoja: '{worksheet_name}')...", flush=True)
-            result = service.spreadsheets().values().update(
-                spreadsheetId=spreadsheet_id,
-                range=range_name,
+            service = build('sheets', 'v4', credentials=creds_local)
+            values_list = [df.columns.tolist()] + df.astype(str).values.tolist()
+            body_dic = {"values": values_list}
+            print(f"[LOAD [INFO ℹ️]] Actualizando hoja '{worksheet_name_str}' en la planilla '{spreadsheet_id_str}'...", flush=True)
+            result_dic = service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id_str,
+                range=worksheet_name_str,
                 valueInputOption="USER_ENTERED",
-                body=body
+                body=body_dic
             ).execute()
-            print(f"[WRITING [SUCCESS ✅]] Se actualizaron {result.get('updatedCells')} celdas en Google Sheets.", flush=True)
+            updated_cells_int = result_dic.get('updatedCells')
+            print(f"[LOAD [SUCCESS ✅]] Se actualizaron {updated_cells_int} celdas en Google Sheets.", flush=True)
         except Exception as e:
-            error_message = f"[WRITING [ERROR ❌]] Error al escribir datos en Google Sheets: {e}"
-            print(error_message, flush=True)
-            raise RuntimeError(error_message)
+            raise RuntimeError(f"[LOAD [ERROR ❌]] Error al escribir en Google Sheets: {e}")
 
-    # ────────────────────────────── Destino – BigQuery ──────────────────────────────
+    # ────────────────────────────── ESCRITURA – BIGQUERY ──────────────────────────────
     def _escribir_gbq(params: dict, df: pd.DataFrame) -> None:
+        print("\n[LOAD [START ▶️]] Iniciando carga de DataFrame en BigQuery...", flush=True)
         from google.cloud import bigquery
         import json
-
         scope_list = ["https://www.googleapis.com/auth/bigquery", "https://www.googleapis.com/auth/drive"]
         is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
         from google.oauth2.service_account import Credentials
-
         try:
             if is_gcp:
-                secret_id = params.get("json_keyfile_GCP_secret_id")
-                if not secret_id:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando Secret Manager para BigQuery.", flush=True)
+                json_keyfile_GCP_secret_id_str = params.get("json_keyfile_GCP_secret_id")
+                if not json_keyfile_GCP_secret_id_str:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se requiere 'json_keyfile_GCP_secret_id'.")
+                print("[AUTHENTICATION [INFO ℹ️]] Entorno GCP detectado. Autenticando para BigQuery mediante Secret Manager...", flush=True)
                 from google.cloud import secretmanager
-                project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-                if not project_id:
-                    raise ValueError("No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT'.")
+                project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
                 client_sm = secretmanager.SecretManagerServiceClient()
-                secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+                secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
                 response = client_sm.access_secret_version(name=secret_name)
                 secret_string = response.payload.data.decode("UTF-8")
                 secret_info = json.loads(secret_string)
-                creds = Credentials.from_service_account_info(secret_info, scopes=scope_list)
+                creds_local = Credentials.from_service_account_info(secret_info, scopes=scope_list)
             else:
-                json_keyfile = params.get("json_keyfile_colab")
-                if not json_keyfile:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile_colab'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno Colab detectado. Usando json_keyfile_colab para BigQuery.", flush=True)
-                creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
+                json_keyfile_colab_str = params.get("json_keyfile_colab")
+                if not json_keyfile_colab_str:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se requiere 'json_keyfile_colab'.")
+                print("[AUTHENTICATION [INFO ℹ️]] Entorno local/Colab detectado. Autenticando para BigQuery mediante archivo JSON...", flush=True)
+                creds_local = Credentials.from_service_account_file(json_keyfile_colab_str, scopes=scope_list)
             
-            client_bq = bigquery.Client(credentials=creds, project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
-            gbq_table = params.get("GBQ_target_table_name")
-            if not gbq_table:
+            client_bq = bigquery.Client(credentials=creds_local, project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
+            gbq_table_str = params.get("GBQ_target_table_name")
+            if not gbq_table_str:
                 raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro 'GBQ_target_table_name' para BigQuery.")
-            
-            print(f"[WRITING [START ⏳]] Cargando DataFrame en la tabla de BigQuery '{gbq_table}'...", flush=True)
-            job = client_bq.load_table_from_dataframe(df, gbq_table)
-            job.result()  # Esperar a que el job finalice
-            print("[WRITING [SUCCESS ✅]] DataFrame cargado correctamente en BigQuery.", flush=True)
+            print(f"[LOAD [INFO ℹ️]] Cargando DataFrame en la tabla BigQuery: {gbq_table_str}...", flush=True)
+            job = client_bq.load_table_from_dataframe(df, gbq_table_str)
+            job.result()
+            print("[LOAD [SUCCESS ✅]] DataFrame cargado exitosamente en BigQuery.", flush=True)
         except Exception as e:
-            error_message = f"[WRITING [ERROR ❌]] Error al escribir en BigQuery: {e}"
-            print(error_message, flush=True)
-            raise RuntimeError(error_message)
+            raise RuntimeError(f"[LOAD [ERROR ❌]] Error al escribir en BigQuery: {e}")
 
-    # ────────────────────────────── Destino – Google Cloud Storage (GCS) ──────────────────────────────
+    # ────────────────────────────── ESCRITURA – GOOGLE CLOUD STORAGE (GCS) ──────────────────────────────
     def _escribir_gcs(params: dict, df: pd.DataFrame) -> None:
+        print("\n[LOAD [START ▶️]] Iniciando subida de DataFrame a Google Cloud Storage (GCS)...", flush=True)
         from google.cloud import storage
         import json
-
         scope_list = ["https://www.googleapis.com/auth/devstorage.read_only"]
         is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
         from google.oauth2.service_account import Credentials
-
         try:
             if is_gcp:
-                secret_id = params.get("json_keyfile_GCP_secret_id")
-                if not secret_id:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando Secret Manager para GCS.", flush=True)
+                json_keyfile_GCP_secret_id_str = params.get("json_keyfile_GCP_secret_id")
+                if not json_keyfile_GCP_secret_id_str:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se requiere 'json_keyfile_GCP_secret_id'.")
+                print("[AUTHENTICATION [INFO ℹ️]] Entorno GCP detectado. Autenticando para GCS mediante Secret Manager...", flush=True)
                 from google.cloud import secretmanager
-                project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-                if not project_id:
-                    raise ValueError("No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT'.")
+                project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
                 client_sm = secretmanager.SecretManagerServiceClient()
-                secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+                secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
                 response = client_sm.access_secret_version(name=secret_name)
                 secret_string = response.payload.data.decode("UTF-8")
                 secret_info = json.loads(secret_string)
-                creds = Credentials.from_service_account_info(secret_info, scopes=scope_list)
+                creds_local = Credentials.from_service_account_info(secret_info, scopes=scope_list)
             else:
-                json_keyfile = params.get("json_keyfile_colab")
-                if not json_keyfile:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile_colab'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno Colab detectado. Usando json_keyfile_colab para GCS.", flush=True)
-                creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
+                json_keyfile_colab_str = params.get("json_keyfile_colab")
+                if not json_keyfile_colab_str:
+                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se requiere 'json_keyfile_colab'.")
+                print("[AUTHENTICATION [INFO ℹ️]] Entorno local/Colab detectado. Autenticando para GCS mediante archivo JSON...", flush=True)
+                creds_local = Credentials.from_service_account_file(json_keyfile_colab_str, scopes=scope_list)
             
-            bucket_name = params.get("GCS_target_table_bucket_name")
-            file_path = params.get("GCS_target_table_file_path")
-            if not bucket_name or not file_path:
-                raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'GCS_target_table_bucket_name' o 'GCS_target_table_file_path'.")
-            
-            client_storage = storage.Client(credentials=creds, project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
-            bucket = client_storage.bucket(bucket_name)
-            blob = bucket.blob(file_path)
-            _, ext = os.path.splitext(file_path)
+            bucket_name_str = params.get("GCS_target_table_bucket_name")
+            file_path_str = params.get("GCS_target_table_file_path")
+            if not bucket_name_str or not file_path_str:
+                raise ValueError("[VALIDATION [ERROR ❌]] Falta 'GCS_target_table_bucket_name' o 'GCS_target_table_file_path' en params.")
+            client_storage = storage.Client(credentials=creds_local, project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
+            bucket = client_storage.bucket(bucket_name_str)
+            blob = bucket.blob(file_path_str)
+            _, ext = os.path.splitext(file_path_str)
             ext = ext.lower()
-            
-            print(f"[WRITING [START ⏳]] Convirtiendo DataFrame a bytes para almacenar en GCS...", flush=True)
+            print(f"[LOAD [INFO ℹ️]] Convirtiendo DataFrame a bytes para archivo con extensión '{ext}'...", flush=True)
             if ext in ['.xls', '.xlsx']:
-                engine = 'openpyxl'
+                engine_str = 'openpyxl'
                 output = io.BytesIO()
-                df.to_excel(output, index=False, engine=engine)
+                df.to_excel(output, index=False, engine=engine_str)
                 file_bytes = output.getvalue()
-                content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                content_type_str = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             elif ext == '.csv':
                 file_bytes = df.to_csv(index=False).encode('utf-8')
-                content_type = 'text/csv'
+                content_type_str = 'text/csv'
             elif ext == '.tsv':
                 file_bytes = df.to_csv(sep='\t', index=False).encode('utf-8')
-                content_type = 'text/tab-separated-values'
+                content_type_str = 'text/tab-separated-values'
             else:
-                raise RuntimeError(f"[WRITING [ERROR ❌]] Extensión de archivo '{ext}' no soportada para GCS.")
-            
-            print(f"[WRITING [START ⏳]] Subiendo archivo '{file_path}' al bucket '{bucket_name}'...", flush=True)
-            blob.upload_from_string(file_bytes, content_type=content_type)
-            print(f"[WRITING [SUCCESS ✅]] Archivo subido correctamente a GCS.", flush=True)
+                raise RuntimeError(f"[LOAD [ERROR ❌]] Extensión '{ext}' no soportada para GCS.")
+            print(f"[LOAD [INFO ℹ️]] Subiendo archivo '{file_path_str}' al bucket '{bucket_name_str}'...", flush=True)
+            blob.upload_from_string(file_bytes, content_type=content_type_str)
+            print("[LOAD [SUCCESS ✅]] Archivo subido exitosamente a GCS.", flush=True)
         except Exception as e:
-            error_message = f"[WRITING [ERROR ❌]] Error al escribir archivo en GCS: {e}"
-            print(error_message, flush=True)
-            raise RuntimeError(error_message)
+            raise RuntimeError(f"[LOAD [ERROR ❌]] Error al escribir en GCS: {e}")
 
-    # ────────────────────────────── Proceso Principal ──────────────────────────────
-    _validar_comun(params)
+    # ────────────────────────────── PROCESO PRINCIPAL ──────────────────────────────
+    try:
+        if _es_target_archivo(params):
+            _escribir_archivo(params, df)
+        elif _es_target_gsheet(params):
+            _escribir_google_sheet(params, df)
+        elif _es_target_gbq(params):
+            _escribir_gbq(params, df)
+        elif _es_target_gcs(params):
+            _escribir_gcs(params, df)
+        else:
+            raise ValueError("[VALIDATION [ERROR ❌]] No se han proporcionado parámetros válidos para identificar el destino. "
+                             "Defina 'file_target_table_path', 'spreadsheet_target_table_id' y 'spreadsheet_target_table_worksheet_name', "
+                             "'GBQ_target_table_name' o 'GCS_target_table_bucket_name' y 'GCS_target_table_file_path'.")
+    except Exception as error_e:
+        print(f"\n🔹🔹🔹 [END [FAILED ❌]] Proceso finalizado con errores: {error_e} 🔹🔹🔹\n", flush=True)
+        raise
 
-    if _es_target_archivo(params):
-        _escribir_archivo(params, df)
-    elif _es_target_gsheet(params):
-        _escribir_google_sheet(params, df)
-    elif _es_target_gbq(params):
-        _escribir_gbq(params, df)
-    elif _es_target_gcs(params):
-        _escribir_gcs(params, df)
-    else:
-        raise ValueError(
-            "[VALIDATION [ERROR ❌]] No se han proporcionado parámetros válidos para identificar el destino. "
-            "Defina 'file_target_table_path', 'spreadsheet_target_table_id' y 'spreadsheet_target_table_worksheet_name', "
-            "'GBQ_target_table_name' o 'GCS_target_table_bucket_name' y 'GCS_target_table_file_path'."
-        )
+    print("\n🔹🔹🔹 [END [FINISHED 🏁]] Escritura completada exitosamente. 🔹🔹🔹\n", flush=True)
