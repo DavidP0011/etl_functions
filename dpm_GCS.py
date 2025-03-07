@@ -1,3 +1,16 @@
+import os
+import json
+import gzip
+import requests
+import tempfile
+from google.cloud import storage, secretmanager
+from google.oauth2 import service_account
+import zipfile
+
+# __________________________________________________________________________________________________________________________________________________________
+# GCS_web_download_links_to_bucket
+# __________________________________________________________________________________________________________________________________________________________
+
 def GCS_web_download_links_to_bucket(params: dict) -> None:
     """
     Descarga archivos desde una lista de URLs y los carga en un bucket de Google Cloud Storage.
