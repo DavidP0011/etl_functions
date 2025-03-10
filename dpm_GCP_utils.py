@@ -541,4 +541,3 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
 
     print("\n🔹🔹🔹 [END [FINISHED 🏁]] Esquema extendido de GCS obtenido correctamente. 🔹🔹🔹\n", flush=True)
     return df_gcs
-
