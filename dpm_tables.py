@@ -581,11 +581,11 @@ def table_DF_to_various_targets(params: dict) -> None:
                 raise ValueError("[VALIDATION [ERROR ❌]] No se pudo extraer el ID de la hoja de cálculo desde la URL proporcionada.")
         else:
             spreadsheet_id_str = spreadsheet_id_raw
-
+    
         worksheet_name_str = params.get("spreadsheet_target_table_worksheet_name")
         if not spreadsheet_id_str or not worksheet_name_str:
             raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'spreadsheet_target_table_id' o 'spreadsheet_target_table_worksheet_name' en params.")
-
+    
         try:
             scope_list = [
                 "https://www.googleapis.com/auth/spreadsheets",
@@ -612,11 +612,28 @@ def table_DF_to_various_targets(params: dict) -> None:
                     raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se requiere 'json_keyfile_colab'.")
                 print("[AUTHENTICATION [INFO ℹ️]] Entorno local/Colab detectado. Autenticando para Google Sheets mediante archivo JSON...", flush=True)
                 creds_local = Credentials.from_service_account_file(json_keyfile_colab_str, scopes=scope_list)
-
+    
             service = build('sheets', 'v4', credentials=creds_local)
-            values_list = [df.columns.tolist()] + df.astype(str).values.tolist()
+    
+            # En modo overwrite se limpia la hoja para eliminar todos los registros previos
+            if mode == "overwrite":
+                clear_body = {}
+                service.spreadsheets().values().clear(
+                    spreadsheetId=spreadsheet_id_str,
+                    range=worksheet_name_str,
+                    body=clear_body
+                ).execute()
+                # En overwrite se incluye la cabecera
+                values_list = [df.columns.tolist()] + df.astype(str).values.tolist()
+            elif mode == "append":
+                # En modo append se omite la cabecera
+                values_list = df.astype(str).values.tolist()
+            else:
+                raise ValueError("Modo desconocido para Google Sheets: use 'overwrite' o 'append'.")
+    
             body_dic = {"values": values_list}
             print(f"[LOAD [INFO ℹ️]] Actualizando hoja '{worksheet_name_str}' en la planilla '{spreadsheet_id_str}' con modo '{mode}'...", flush=True)
+    
             if mode == "overwrite":
                 result_dic = service.spreadsheets().values().update(
                     spreadsheetId=spreadsheet_id_str,
@@ -632,8 +649,7 @@ def table_DF_to_various_targets(params: dict) -> None:
                     insertDataOption="INSERT_ROWS",
                     body=body_dic
                 ).execute()
-            else:
-                raise ValueError("Modo desconocido para Google Sheets: use 'overwrite' o 'append'.")
+    
             updated_cells_int = result_dic.get('updatedCells', 'N/A')
             print(f"[LOAD [SUCCESS ✅]] Se actualizaron {updated_cells_int} celdas en Google Sheets.", flush=True)
             print(f"[METRICS [INFO ℹ️]] Destino final: https://docs.google.com/spreadsheets/d/{spreadsheet_id_str}", flush=True)
