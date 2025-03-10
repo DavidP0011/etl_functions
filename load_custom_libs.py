@@ -11,7 +11,8 @@ def load_custom_libs(config_list: list) -> None:
           Si está vacío se importan todos los objetos definidos en el módulo.
 
     Para módulos alojados en GitHub, la URL se transforma a formato raw y se descarga en un archivo temporal.
-    La fecha de última modificación mostrada corresponde a la fecha del último commit en GitHub, convertida a la hora de Madrid.
+    La fecha de última modificación mostrada corresponde a la fecha del último commit en GitHub,
+    convertida a la hora de Madrid.
     """
     import os
     import sys
@@ -22,6 +23,7 @@ def load_custom_libs(config_list: list) -> None:
     import tempfile
     import requests
     from urllib.parse import urlparse
+    import __main__
 
     # ────────────────────────────── Subfunciones Auxiliares ──────────────────────────────
     def _imprimir_encabezado(mensaje: str) -> None:
@@ -66,7 +68,6 @@ def load_custom_libs(config_list: list) -> None:
                         if isinstance(commit_info, list) and len(commit_info) > 0:
                             commit_date_str = commit_info[0]["commit"]["committer"]["date"]
                             commit_date = datetime.datetime.fromisoformat(commit_date_str.replace("Z", "+00:00"))
-                            # Convertir a la zona horaria de Madrid
                             commit_date = commit_date.astimezone(ZoneInfo("Europe/Madrid"))
                     else:
                         print(f"[EXTRACTION [WARNING ⚠️]] No se pudo obtener la fecha del último commit. Código: {api_response.status_code}", flush=True)
@@ -86,7 +87,6 @@ def load_custom_libs(config_list: list) -> None:
                         if isinstance(commit_info, list) and len(commit_info) > 0:
                             commit_date_str = commit_info[0]["commit"]["committer"]["date"]
                             commit_date = datetime.datetime.fromisoformat(commit_date_str.replace("Z", "+00:00"))
-                            # Convertir a la zona horaria de Madrid
                             commit_date = commit_date.astimezone(ZoneInfo("Europe/Madrid"))
                     else:
                         print(f"[EXTRACTION [WARNING ⚠️]] No se pudo obtener la fecha del último commit. Código: {api_response.status_code}", flush=True)
@@ -158,11 +158,10 @@ def load_custom_libs(config_list: list) -> None:
                 doc = inspect.getdoc(obj) or "Sin documentación"
                 first_line = doc.split("\n")[0]
                 print(f"      • {name} ({obj_type}): {first_line}", flush=True)
-        print(f"\n[END [FINISHED ✅]] Módulo '{module_name}' actualizado e importado en globals().\n", flush=True)
+        print(f"\n[END [FINISHED ✅]] Módulo '{module_name}' actualizado e importado en __main__.\n", flush=True)
 
     # ────────────────────────────── Proceso Principal ──────────────────────────────
     for config in config_list:
-        # Obtener el nombre original del módulo a partir de la ruta en el config
         original_module_name = os.path.basename(config.get("module_path", ""))
         _imprimir_encabezado(f"[START ▶️] Iniciando carga de módulo {original_module_name}")
 
@@ -182,7 +181,6 @@ def load_custom_libs(config_list: list) -> None:
             continue
 
         importlib.invalidate_caches()
-        # Si se obtuvo la fecha del último commit desde GitHub, se utiliza; de lo contrario, se toma la fecha de modificación local
         if module_host == "github" and github_commit_date is not None:
             mod_date = github_commit_date
         else:
@@ -193,5 +191,6 @@ def load_custom_libs(config_list: list) -> None:
             continue
 
         selected_objects = _get_defined_objects(module, selected_functions_list)
-        globals().update(selected_objects)
+        # Actualizamos el espacio de nombres de __main__ para que los objetos sean accesibles globalmente
+        __main__.__dict__.update(selected_objects)
         _print_module_report(module_name, module_path, mod_date, selected_objects)
