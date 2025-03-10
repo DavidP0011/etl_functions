@@ -23,7 +23,7 @@ def load_custom_libs(config_list: list) -> None:
     import tempfile
     import requests
     from urllib.parse import urlparse
-    import __main__
+    import builtins  # Se actualizarán los builtins para que las funciones sean globales
 
     # ────────────────────────────── Subfunciones Auxiliares ──────────────────────────────
     def _imprimir_encabezado(mensaje: str) -> None:
@@ -72,7 +72,6 @@ def load_custom_libs(config_list: list) -> None:
                     else:
                         print(f"[EXTRACTION [WARNING ⚠️]] No se pudo obtener la fecha del último commit. Código: {api_response.status_code}", flush=True)
             elif "github.com" in module_path:
-                # URL estándar: /owner/repo/blob/branch/path/to/file.py
                 parsed = urlparse(module_path)
                 parts = parsed.path.split('/')
                 if len(parts) >= 6 and parts[3] == "blob":
@@ -120,7 +119,6 @@ def load_custom_libs(config_list: list) -> None:
         return defined_objects
 
     def _get_module_mod_date(module_path: str) -> datetime.datetime:
-        # Para módulos locales se usa la fecha de modificación del archivo
         mod_timestamp = os.path.getmtime(module_path)
         mod_date = datetime.datetime.fromtimestamp(mod_timestamp, tz=ZoneInfo("Europe/Madrid"))
         return mod_date
@@ -158,7 +156,7 @@ def load_custom_libs(config_list: list) -> None:
                 doc = inspect.getdoc(obj) or "Sin documentación"
                 first_line = doc.split("\n")[0]
                 print(f"      • {name} ({obj_type}): {first_line}", flush=True)
-        print(f"\n[END [FINISHED ✅]] Módulo '{module_name}' actualizado e importado en __main__.\n", flush=True)
+        print(f"\n[END [FINISHED ✅]] Módulo '{module_name}' actualizado e importado en los builtins.\n", flush=True)
 
     # ────────────────────────────── Proceso Principal ──────────────────────────────
     for config in config_list:
@@ -191,6 +189,7 @@ def load_custom_libs(config_list: list) -> None:
             continue
 
         selected_objects = _get_defined_objects(module, selected_functions_list)
-        # Actualizamos el espacio de nombres de __main__ para que los objetos sean accesibles globalmente
-        __main__.__dict__.update(selected_objects)
+        # Actualizamos los builtins para que los objetos sean accesibles globalmente en Colab
+        import builtins
+        builtins.__dict__.update(selected_objects)
         _print_module_report(module_name, module_path, mod_date, selected_objects)
