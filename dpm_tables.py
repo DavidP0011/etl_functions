@@ -465,17 +465,22 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
 def table_DF_to_various_targets(params: dict) -> None:
     """
     Escribe un DataFrame en distintos destinos (archivo local, Google Sheets, BigQuery o GCS)
-    según la configuración definida en el diccionario de entrada.
+    según la configuración definida en el diccionario de entrada, permitiendo especificar el modo
+    de escritura: sobrescribir (overwrite) o agregar (append).
 
     Args:
         params (dict):
             - df (pd.DataFrame) [requerido]: DataFrame a exportar.
             - file_target_table_path (str, opcional): Ruta del archivo destino. Ej: "/ruta/al/archivo.csv" o ".xlsx".
+            - file_target_table_overwrite_or_append (str, opcional): "overwrite" o "append" para archivos locales.
             - spreadsheet_target_table_id (str, opcional): URL o ID de la hoja de cálculo destino.
             - spreadsheet_target_table_worksheet_name (str, opcional): Nombre de la pestaña destino.
+            - spreadsheet_target_table_overwrite_or_append (str, opcional): "overwrite" o "append" para Google Sheets.
             - GBQ_target_table_name (str, opcional): Nombre de la tabla destino en BigQuery (ej: "proyecto.dataset.tabla").
+            - GBQ_target_table_overwrite_or_append (str, opcional): "overwrite" o "append" para BigQuery.
             - GCS_target_table_bucket_name (str, opcional): Nombre del bucket destino en GCS.
             - GCS_target_table_file_path (str, opcional): Ruta del archivo en GCS destino.
+            - GCS_target_table_overwrite_or_append (str, opcional): "overwrite" o "append" para GCS.
             - json_keyfile_GCP_secret_id (str, requerido en entornos GCP): Secret ID del JSON de credenciales alojado en Secret Manager.
             - json_keyfile_colab (str, requerido en entornos local/Colab): Ruta al archivo JSON de credenciales.
 
@@ -523,18 +528,35 @@ def table_DF_to_various_targets(params: dict) -> None:
     # ────────────────────────────── ESCRITURA – ARCHIVO LOCAL ──────────────────────────────
     def _escribir_archivo(params: dict, df: pd.DataFrame) -> None:
         print("\n[LOAD [START ▶️]] Iniciando escritura en archivo local...", flush=True)
+        mode = params.get("file_target_table_overwrite_or_append", "overwrite").lower()
         file_path_str = params.get('file_target_table_path')
         _, ext = os.path.splitext(file_path_str)
         ext = ext.lower()
         try:
-            print(f"[LOAD [INFO ℹ️]] Escribiendo DataFrame en: {file_path_str}", flush=True)
+            print(f"[LOAD [INFO ℹ️]] Escribiendo DataFrame en: {file_path_str} con modo '{mode}'", flush=True)
             if ext in ['.xls', '.xlsx']:
                 engine_str = 'openpyxl'
-                df.to_excel(file_path_str, index=False, engine=engine_str)
+                if mode == "append" and os.path.exists(file_path_str):
+                    import pandas as pd
+                    # Se carga el archivo Excel existente
+                    df_existing = pd.read_excel(file_path_str, engine=engine_str)
+                    # Se concatena el DataFrame existente con el nuevo
+                    df_combined = pd.concat([df_existing, df], ignore_index=True)
+                    # Se guarda el DataFrame combinado sobrescribiendo el archivo original
+                    df_combined.to_excel(file_path_str, index=False, engine=engine_str)
+                else:
+                    # Se guarda el DataFrame directamente (overwrite o si el archivo no existe)
+                    df.to_excel(file_path_str, index=False, engine=engine_str)
             elif ext == '.csv':
-                df.to_csv(file_path_str, index=False)
+                if mode == "append" and os.path.exists(file_path_str):
+                    df.to_csv(file_path_str, index=False, mode='a', header=False)
+                else:
+                    df.to_csv(file_path_str, index=False, mode='w', header=True)
             elif ext == '.tsv':
-                df.to_csv(file_path_str, sep='\t', index=False)
+                if mode == "append" and os.path.exists(file_path_str):
+                    df.to_csv(file_path_str, sep='\t', index=False, mode='a', header=False)
+                else:
+                    df.to_csv(file_path_str, sep='\t', index=False, mode='w', header=True)
             else:
                 raise RuntimeError(f"[LOAD [ERROR ❌]] Extensión '{ext}' no soportada para escritura en archivo local.")
             print(f"[LOAD [SUCCESS ✅]] DataFrame escrito exitosamente en '{file_path_str}'.", flush=True)
@@ -542,12 +564,14 @@ def table_DF_to_various_targets(params: dict) -> None:
         except Exception as e:
             raise RuntimeError(f"[LOAD [ERROR ❌]] Error al escribir en archivo local: {e}")
 
+
     # ────────────────────────────── ESCRITURA – GOOGLE SHEETS ──────────────────────────────
     def _escribir_google_sheet(params: dict, df: pd.DataFrame) -> None:
         print("\n[LOAD [START ▶️]] Iniciando escritura en Google Sheets...", flush=True)
         import re
         from googleapiclient.discovery import build
         import json
+        mode = params.get("spreadsheet_target_table_overwrite_or_append", "overwrite").lower()
         spreadsheet_id_raw = params.get("spreadsheet_target_table_id")
         if "spreadsheets/d/" in spreadsheet_id_raw:
             match = re.search(r"/d/([a-zA-Z0-9-_]+)", spreadsheet_id_raw)
@@ -592,14 +616,25 @@ def table_DF_to_various_targets(params: dict) -> None:
             service = build('sheets', 'v4', credentials=creds_local)
             values_list = [df.columns.tolist()] + df.astype(str).values.tolist()
             body_dic = {"values": values_list}
-            print(f"[LOAD [INFO ℹ️]] Actualizando hoja '{worksheet_name_str}' en la planilla '{spreadsheet_id_str}'...", flush=True)
-            result_dic = service.spreadsheets().values().update(
-                spreadsheetId=spreadsheet_id_str,
-                range=worksheet_name_str,
-                valueInputOption="USER_ENTERED",
-                body=body_dic
-            ).execute()
-            updated_cells_int = result_dic.get('updatedCells')
+            print(f"[LOAD [INFO ℹ️]] Actualizando hoja '{worksheet_name_str}' en la planilla '{spreadsheet_id_str}' con modo '{mode}'...", flush=True)
+            if mode == "overwrite":
+                result_dic = service.spreadsheets().values().update(
+                    spreadsheetId=spreadsheet_id_str,
+                    range=worksheet_name_str,
+                    valueInputOption="USER_ENTERED",
+                    body=body_dic
+                ).execute()
+            elif mode == "append":
+                result_dic = service.spreadsheets().values().append(
+                    spreadsheetId=spreadsheet_id_str,
+                    range=worksheet_name_str,
+                    valueInputOption="USER_ENTERED",
+                    insertDataOption="INSERT_ROWS",
+                    body=body_dic
+                ).execute()
+            else:
+                raise ValueError("Modo desconocido para Google Sheets: use 'overwrite' o 'append'.")
+            updated_cells_int = result_dic.get('updatedCells', 'N/A')
             print(f"[LOAD [SUCCESS ✅]] Se actualizaron {updated_cells_int} celdas en Google Sheets.", flush=True)
             print(f"[METRICS [INFO ℹ️]] Destino final: https://docs.google.com/spreadsheets/d/{spreadsheet_id_str}", flush=True)
         except Exception as e:
@@ -611,6 +646,7 @@ def table_DF_to_various_targets(params: dict) -> None:
         from google.cloud import bigquery
         import json
         scope_list = ["https://www.googleapis.com/auth/bigquery", "https://www.googleapis.com/auth/drive"]
+        mode = params.get("GBQ_target_table_overwrite_or_append", "overwrite").lower()
         is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
         from google.oauth2.service_account import Credentials
         try:
@@ -634,14 +670,22 @@ def table_DF_to_various_targets(params: dict) -> None:
                 print("[AUTHENTICATION [INFO ℹ️]] Entorno local/Colab detectado. Autenticando para BigQuery mediante archivo JSON...", flush=True)
                 creds_local = Credentials.from_service_account_file(json_keyfile_colab_str, scopes=scope_list)
             
-            # Se obtiene el proyecto: si la variable de entorno no está definida, se asume que se está en entorno local
             project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT", "PROYECTO_LOCAL")
             client_bq = bigquery.Client(credentials=creds_local, project=project_id_env)
             gbq_table_str = params.get("GBQ_target_table_name")
             if not gbq_table_str:
                 raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro 'GBQ_target_table_name' para BigQuery.")
-            print(f"[LOAD [INFO ℹ️]] Cargando DataFrame en la tabla BigQuery: {gbq_table_str}...", flush=True)
-            job = client_bq.load_table_from_dataframe(df, gbq_table_str)
+            
+            print(f"[LOAD [INFO ℹ️]] Cargando DataFrame en la tabla BigQuery: {gbq_table_str} con modo '{mode}'...", flush=True)
+            job_config = bigquery.LoadJobConfig()
+            if mode == "overwrite":
+                job_config.write_disposition = bigquery.WriteDisposition.WRITE_TRUNCATE
+            elif mode == "append":
+                job_config.write_disposition = bigquery.WriteDisposition.WRITE_APPEND
+            else:
+                raise ValueError("Modo desconocido para BigQuery: use 'overwrite' o 'append'.")
+            
+            job = client_bq.load_table_from_dataframe(df, gbq_table_str, job_config=job_config)
             job.result()
             print("[LOAD [SUCCESS ✅]] DataFrame cargado exitosamente en BigQuery.", flush=True)
             print(f"[METRICS [INFO ℹ️]] Destino final: https://console.cloud.google.com/bigquery?project={project_id_env}&ws=!1m5!1m4!4m3!1s{gbq_table_str}", flush=True)
@@ -654,6 +698,7 @@ def table_DF_to_various_targets(params: dict) -> None:
         from google.cloud import storage
         import json
         scope_list = ["https://www.googleapis.com/auth/devstorage.read_only"]
+        mode = params.get("GCS_target_table_overwrite_or_append", "overwrite").lower()
         is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
         from google.oauth2.service_account import Credentials
         try:
@@ -686,7 +731,23 @@ def table_DF_to_various_targets(params: dict) -> None:
             blob = bucket.blob(file_path_str)
             _, ext = os.path.splitext(file_path_str)
             ext = ext.lower()
-            print(f"[LOAD [INFO ℹ️]] Convirtiendo DataFrame a bytes para archivo con extensión '{ext}'...", flush=True)
+            print(f"[LOAD [INFO ℹ️]] Procesando DataFrame para archivo con extensión '{ext}' en modo '{mode}'...", flush=True)
+            
+            # Si se solicita "append" y el archivo ya existe, se descarga y se concatena
+            if mode == "append" and blob.exists(client_storage):
+                blob_bytes = blob.download_as_string()
+                import io
+                if ext == '.csv':
+                    df_existing = pd.read_csv(io.StringIO(blob_bytes.decode('utf-8')))
+                elif ext == '.tsv':
+                    df_existing = pd.read_csv(io.StringIO(blob_bytes.decode('utf-8')), sep='\t')
+                elif ext in ['.xls', '.xlsx']:
+                    df_existing = pd.read_excel(io.BytesIO(blob_bytes))
+                else:
+                    raise RuntimeError(f"[LOAD [ERROR ❌]] Extensión '{ext}' no soportada para GCS en modo append.")
+                df = pd.concat([df_existing, df], ignore_index=True)
+            
+            # Conversión del DataFrame a bytes
             if ext in ['.xls', '.xlsx']:
                 engine_str = 'openpyxl'
                 output = io.BytesIO()
