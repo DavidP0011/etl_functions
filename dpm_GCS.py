@@ -218,7 +218,7 @@ def GCS_web_download_links_to_bucket(params: dict) -> None:
 def GCS_files_to_GBQ(params: dict) -> None:
     """
     Carga archivos desde GCS a BigQuery en chunks, soportando múltiples formatos (CSV, TSV, XLS, XLSX).
-    Incorpora lógica de filtrado y reemplazo/ sufijo en el nombre de la tabla final:
+    Incorpora lógica de filtrado y reemplazo/sufijo en el nombre de la tabla final:
       - target_table_names_replace: dict con reemplazos para el nombre base.
       - target_table_names_suffix: str que se concatena al final, sin guion bajo automático.
 
@@ -234,7 +234,7 @@ def GCS_files_to_GBQ(params: dict) -> None:
             # === Lista de archivos y/o Filtros ===
             - files_list (list[str]): Lista de archivos concretos a procesar en GCS.
               Si está vacío, se toma todo el bucket (aplicando filters_dic si 'use_bool' es True).
-            - filters_dic (dict, opcional): Diccionario con filtros (similar a GCS_load_CSV_to_GBQ):
+            - filters_dic (dict, opcional): Diccionario con filtros:
                   {
                       "use_bool": True,
                       "name_include_patterns_list": [...],
@@ -534,7 +534,10 @@ def GCS_files_to_GBQ(params: dict) -> None:
             elif tipo == "BOOL":
                 chunk_df[col] = chunk_df[col].apply(_normalizar_bool)
             else:
+                # Aquí se asume que el tipo es STRING.
+                # Se convierte la columna a string y se reemplazan los valores "\N" por null (np.nan)
                 chunk_df[col] = chunk_df[col].astype(str)
+                chunk_df[col] = chunk_df[col].replace(r'\N', np.nan)
         return chunk_df
 
     # ─────────────────────────────────────────────
@@ -607,18 +610,11 @@ def GCS_files_to_GBQ(params: dict) -> None:
             continue
 
         # 7C) Construir nombre final de tabla
-        #    1) Partimos del nombre base sin extensión
-        #    2) Reemplazamos subcadenas según 'target_table_names_replace'
-        #    3) Concatenamos 'target_table_names_suffix' (sin '_' automático)
-        base_table_name = os.path.splitext(local_filename)[0]  # quita .csv, etc.
-        # Reemplazar ".", etc., en base_table_name
-        # (Aunque esto ya no es crítico si se normaliza luego, preferimos no forzar . a _)
-        # El step crucial es aplicar replace dict:
+        base_table_name = os.path.splitext(local_filename)[0]
         for old_str, new_str in target_table_names_replace.items():
             base_table_name = base_table_name.replace(old_str, new_str)
 
         final_table_name = base_table_name + target_table_names_suffix
-        # Normalizar por si hay caracteres conflictivos
         final_table_name = re.sub(r"[^a-zA-Z0-9_]", "_", final_table_name)
         final_table_name = re.sub(r"_+", "_", final_table_name).strip("_")[:300]
 
