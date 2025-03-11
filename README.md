@@ -1,24 +1,33 @@
-# Manual de Estilo para Creación de Funciones en Python (Actualizado)
+# Manual de Estilo para Funciones DPM en Python
 
-Este manual establece una guía detallada para escribir funciones en Python de forma **clara, modular, trazable y consistente**. La idea es que, al seguir estas directrices, se garantice la facilidad de mantenimiento, la reutilización del código y una depuración eficaz.
+Este manual ofrece una guía para escribir funciones en Python de forma **clara, modular, trazable y consistente**. Su objetivo es facilitar el mantenimiento, la reutilización y la depuración del código.
 
 ---
 
-## 1. Nomenclatura: De lo General a lo Específico
+## 1. Introducción y Objetivos
 
-### 1.1. Nombres de Funciones
-- **Formato:** Utiliza *snake_case* (todo en minúsculas y separado por guiones bajos).
-- **Estructura sugerida:**  
+- **Propósito:** Establecer directrices para la creación de funciones que sean fáciles de mantener, reutilizar y depurar.
+- **Enfoque:** Código limpio, validaciones tempranas, mensajes de log estandarizados y organización modular.
+
+---
+
+## 2. Nomenclatura y Convenciones
+
+### 2.1. Nombres de Funciones
+
+- **Formato:** Usa *snake_case* (minúsculas y guiones bajos).
+- **Estructura Sugerida:**  
   **verbo** + **objeto/ámbito** + **detalle (opcional)** + **resultado** + **tipo de dato**  
   *Ejemplos:*  
   - `SQL_generate_report_str()`  
   - `API_fetch_data_dic()`  
   - `leads_calculate_conversion_float()`
-- **Siglas reconocidas:** Escribe las siglas (por ejemplo, SQL, API, JSON) en **MAYÚSCULAS**.
+- **Siglas:** Se escriben en **MAYÚSCULAS** (ej.: SQL, API, JSON).
 
-### 1.2. Nombres de Variables
-- Sigue la misma estructura que en las funciones, incluyendo un **sufijo de tipo**:
-  - `_str`, `_int`, `_float`, `_bool`, `_dic`, `_list`, `_df`, `_set`, `_tuple`.
+### 2.2. Nombres de Variables
+
+- Aplica el mismo esquema que para funciones, añadiendo un **sufijo de tipo**:  
+  `_str`, `_int`, `_float`, `_bool`, `_dic`, `_list`, `_df`, `_set`, `_tuple`.
 - *Ejemplos:*  
   - `campaign_cost_total_float`  
   - `SQL_query_str`  
@@ -26,28 +35,31 @@ Este manual establece una guía detallada para escribir funciones en Python de f
 
 ---
 
-## 2. Estructura de Funciones
+## 3. Estructura y Documentación de Funciones
 
-### 2.1. Definición y Argumentos
-- **Uso de un único argumento:**  
-  Todas las funciones deberán recibir un único parámetro, generalmente un diccionario `params: dict`.  
-- Si se requieren varios parámetros, agrúpalos en un diccionario para mantener la uniformidad y facilitar la validación.
-- **Docstrings completos:**  
-  Cada función debe incluir un docstring que contenga:
-  - Una breve descripción de la función.
-  - Detalle de cada parámetro en `params` (nombre, tipo y descripción).
-  - Tipo y descripción del valor de retorno.
-  - Posibles excepciones (`Raises`).
+### 3.1. Definición y Parámetros
 
-### 2.2. Ejemplo Base
+- **Argumento Único:**  
+  Toda función debe recibir un único parámetro, usualmente un diccionario (`config: dict`), para agrupar los valores de entrada.
+- **Agrupación de Parámetros:**  
+  Si se requieren múltiples entradas, se deben consolidar en el diccionario para mantener la uniformidad.
+
+### 3.2. Docstrings Completos
+
+Cada función debe incluir un docstring que contenga:
+- **Descripción breve** de la función.
+- **Detalle de parámetros:** nombre, tipo y descripción.
+- **Valor de retorno:** tipo y descripción.
+- **Excepciones:** Detalle de posibles errores (`Raises`).
+
+#### Ejemplo Base
 ```python
-# @title SQL_generate_report_str()
-def SQL_generate_report_str(params: dict) -> str:
+def SQL_generate_report_str(config: dict) -> str:
     """
     Genera un reporte SQL en forma de cadena.
 
     Args:
-        params (dict):
+        config (dict):
             - query (str): Consulta SQL.
             - format (str, opcional): Formato de salida (default: 'csv').
 
@@ -57,135 +69,176 @@ def SQL_generate_report_str(params: dict) -> str:
     Raises:
         ValueError: Si falta el parámetro 'query'.
     """
-    query_str = params.get('query')
+    query_str = config.get('query')
     if not query_str:
-        raise ValueError("[VALIDATION [ERROR ❌]] Falta 'query' en params.")
+        raise ValueError("[VALIDATION [ERROR ❌]] Falta 'query' en config.")
     
     return f"Reporte para: {query_str}"
 ```
 
 ---
 
-## 3. Validación de Parámetros
+## 4. Validación de Parámetros
 
-- **Inmediatamente al inicio de la función**, valida que se hayan proporcionado todos los parámetros obligatorios.  
-- Utiliza mensajes de error claros y utiliza el prefijo `[VALIDATION [ERROR ❌]]` para indicar problemas en la validación.
-- Ejemplo:
-  ```python
-  if leads_total_int == 0:
-      raise ValueError("[VALIDATION [ERROR ❌]] Leads no puede ser cero.")
-  ```
+- **Validación Inicial:**  
+  Realiza la verificación de todos los parámetros obligatorios al inicio de la función.
+- **Mensajes de Error:**  
+  Usa mensajes claros con el prefijo `[VALIDATION [ERROR ❌]]`.
 
----
-
-## 4. Estilo de Código y Formato
-
-### 4.1. Formato y Espaciado
-- **Indentación:** Utiliza 4 espacios por nivel.
-- **Espaciado entre funciones:** Deja 2 líneas en blanco entre funciones.
-- **Líneas en blanco:** Usa una línea en blanco antes del `return` si hay lógica previa para mejorar la legibilidad.
-
-### 4.2. Importaciones
-- **Importaciones globales:** Coloca las importaciones generales (librerías estándar o de terceros que se usan en varias funciones) al inicio del módulo.
-- **Importaciones locales:** Importa dentro de la función aquellas librerías cuyo uso es específico para esa función. Esto ayuda a reducir dependencias globales y mejora la encapsulación.
+*Ejemplo:*
+```python
+if leads_total_int == 0:
+    raise ValueError("[VALIDATION [ERROR ❌]] Leads no puede ser cero.")
+```
 
 ---
 
-## 5. Prints para Seguimiento y Mensajes de Log
+## 5. Estilo de Código y Formato
 
-### 5.1. Organización Visual
-- **Separadores y Encabezados:**  
-  Separa cada grupo de acciones o secciones con una línea en blanco y un encabezado visual (por ejemplo, usando "🔹🔹🔹") para agrupar fases o bloques de código dentro de la función. Por ejemplo, si la función procesa varias tablas de GBQ o varios archivos, crea una separación en los prints por cada tabla.
-- **Estadísticas, métricas y resumen:**  
-  Al final de cada grupo de acciones anterior, haz print() de las estadísticas más importantes, y un resumen de lo realizado. Al final de la ejecución vuelve a hacer print recopilando todas las estadísticas, métricas y resumen parcial, y añade estadísticas, métricas y resumen final global.
-- **Barra de progreso:**  
-  Siempre que estimes posible, añade una barra de progreso e indicador numérico de % para aquellos procesos que suelan requerir tiempo. No uses nunca librerías especiales, usa solo print.
-- **Info de las APIs:**  
-  Siempre que sea posible, imprime con máximo detalle la respuestas que devuelven las APIs de los servicios a los que nos conectamos.
+### 5.1. Formato y Espaciado
 
-### 5.3. Mensajes Estructurados
-Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman inmediatamente. Se deben usar mensajes con prefijos estandarizados para cada fase del proceso:
+- **Indentación:** 4 espacios por nivel.
+- **Espaciado entre funciones:** 2 líneas en blanco.
+- **Líneas en Blanco:** Coloca una línea en blanco antes del `return` si hay lógica previa para mejorar la legibilidad.
 
-- **Inicio y finalización:**
-  - `[START ▶️]` → Inicio del proceso o tarea.
+### 5.2. Importaciones
+
+- **Globales:** Colócalas al inicio del módulo.
+- **Locales:** Importa dentro de la función solo si es necesario para reducir dependencias globales.
+
+---
+
+## 6. Seguimiento y Mensajes de Log
+
+### 6.1. Mensajes Inmediatos
+
+Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman sin retrasos.
+
+### 6.2. Prefijos Estándar para Cada Fase
+
+- **Inicio/Finalización:**  
+  - `[START ▶️]` → Inicio.
   - `[END [FINISHED ✅]]` → Finalización exitosa.
   - `[END [FAILED ❌]]` → Finalización con errores.
+  
+- **Autenticación:**  
+  - `[AUTHENTICATION [INFO ℹ️]]`
+  - `[AUTHENTICATION [SUCCESS ✅]]`
+  - `[AUTHENTICATION [ERROR ❌]]`
+  
+- **Extracción:**  
+  - `[EXTRACTION [START ▶️]]`
+  - `[EXTRACTION [SUCCESS ✅]]`
+  - `[EXTRACTION [WARNING ⚠️]]`
+  - `[EXTRACTION [ERROR ❌]]`
+  
+- **Transformación:**  
+  - `[TRANSFORMATION [START ▶️]]`
+  - `[TRANSFORMATION [SUCCESS ✅]]`
+  - `[TRANSFORMATION [WARNING ⚠️]]`
+  - `[TRANSFORMATION [ERROR ❌]]`
+  
+- **Carga:**  
+  - `[LOAD [START ▶️]]`
+  - `[LOAD [SUCCESS ✅]]`
+  - `[LOAD [WARNING ⚠️]]`
+  - `[LOAD [ERROR ❌]]`
+  
+- **Métricas y Reporte:**  
+  - `[METRICS [INFO ℹ️]]`
 
-- **Autenticación:**
-  - `[AUTHENTICATION [INFOℹ️]]` → Información sobre el proceso de autenticación.
-  - `[AUTHENTICATION [SUCCESS ✅]]` → Autenticación completada con éxito.
-  - `[AUTHENTICATION [ERROR ❌]]` → Error durante la autenticación.
+### 6.3. Organización Visual
 
-- **Extracción:**
-  - `[EXTRACTION [START ▶️]]` → Inicio de la extracción de datos.
-  - `[EXTRACTION [SUCCESS ✅]]` → Extracción completada correctamente.
-  - `[EXTRACTION [WARNING ⚠️]]` → Advertencias durante la extracción.
-  - `[EXTRACTION [ERROR ❌]]` → Error durante la extracción.
-
-- **Transformación:**
-  - `[TRANSFORMATION [START ▶️]]` → Inicio de la transformación de datos.
-  - `[TRANSFORMATION [SUCCESS ✅]]` → Transformación realizada correctamente.
-  - `[TRANSFORMATION [WARNING ⚠️]]` → Advertencia durante la transformación.
-  - `[TRANSFORMATION [ERROR ❌]]` → Error durante la transformación.
-
-- **Carga (Load):**
-  - `[LOAD [START ▶️]]` → Inicio de la carga de datos.
-  - `[LOAD [SUCCESS ✅]]` → Carga completada correctamente.
-  - `[LOAD [WARNING ⚠️]]` → Advertencia durante la carga.
-  - `[LOAD [ERROR ❌]]` → Error en la carga.
-
-- **Métricas y Reporte:**
-  - `[METRICS [INFO ℹ️]]` → Información y estadísticas del proceso.
-
----
-
-## 6. Manejo de Errores
-
-- **Uso de bloques `try-except`:**  
-  Envuelve operaciones sensibles (como descarga de archivos, importación dinámica, lectura de datos) en bloques `try-except` para capturar y registrar errores.
-- **Mensajes de Error Claros:**  
-  Acompaña los errores con mensajes que incluyan el prefijo correspondiente, p.ej., `[EXTRACTION [ERROR ❌]]`, y proporciona detalles útiles (por ejemplo, el código de estado HTTP o parte del contenido de la respuesta).
-
----
-
-## 7. Funciones Auxiliares (Subfunciones)
-
-- **Definición interna:**  
-  Siempre que la funcionalidad sea específica de una función "madre", define las funciones auxiliares (subfunciones) dentro de ella.  
-- **Nomenclatura interna:**  
-  Utiliza un guión bajo inicial (`_`) para indicar que son funciones internas y no deben formar parte de la API pública.
-- **Ejemplo:**
+- **Encabezados y Separadores:**  
+  Usa separadores visuales (por ejemplo, "🔹🔹🔹") para agrupar bloques de código o fases del proceso. Por ejemplo:
   ```python
-  def load_custom_libs(config_list: list) -> None:
-      def _download_module_from_github(module_path: str) -> str:
-          # Lógica para descargar el módulo...
-          return temp_file_path
-      # Resto de la función...
+  print(f"\n🔹🔹🔹 {mensaje} 🔹🔹🔹\n", flush=True)
   ```
+- **Resumen y Estadísticas:**  
+  Imprime resúmenes y estadísticas al final de cada bloque y al finalizar la ejecución.
 
 ---
 
-## 8. Orden y Organización del Código
+## 7. Manejo de Errores
+
+- **Bloques try-except:**  
+  Envuelve operaciones críticas (descarga, importación dinámica, lectura de datos) para capturar y registrar errores.
+- **Mensajes Claros:**  
+  Acompaña los errores con el prefijo correspondiente (por ejemplo, `[EXTRACTION [ERROR ❌]]`) y detalles útiles.
+
+---
+
+## 8. Funciones Auxiliares (Subfunciones)
+
+- **Definición Interna:**  
+  Si la funcionalidad es específica de una función “madre”, define subfunciones dentro de ella.
+- **Nomenclatura:**  
+  Usa un guión bajo inicial (`_`) para indicar que son internas y no forman parte de la API pública.
+
+*Ejemplo:*
+```python
+def load_custom_libs(config_list: list) -> None:
+    def _download_module_from_github(module_path: str) -> str:
+        # Lógica para descargar el módulo...
+        return temp_file_path
+    # Resto de la función...
+```
+
+---
+
+## 9. Organización y Orden del Código
 
 - **Orden Alfabético:**  
-  Dentro del repositorio, las funciones deben ordenarse alfabéticamente por su nombre. Esto facilita la búsqueda y el mantenimiento.
+  Las funciones deben ordenarse alfabéticamente para facilitar la búsqueda y mantenimiento.
 - **Agrupación Lógica:**  
-  Las funciones relacionadas o que comparten un ámbito similar deben agruparse en módulos o secciones dentro del archivo.
+  Organiza funciones relacionadas en módulos o secciones dentro del archivo.
 
 ---
 
-## 9. Consideraciones Adicionales
+## 10. Consideraciones Adicionales
 
-- **Actualización y Recarga de Módulos:**  
-  En funciones que realizan importaciones dinámicas (por ejemplo, `load_custom_libs`), se debe eliminar la versión previa del módulo y usar `importlib.invalidate_caches()` para asegurar la carga de la versión actual.
+- **Recarga de Módulos:**  
+  En importaciones dinámicas, elimina versiones previas y usa `importlib.invalidate_caches()` para cargar la versión actual.
 - **Gestión de Archivos Temporales:**  
-  Cuando se descargue un archivo o módulo de forma dinámica (por ejemplo, desde GitHub), utiliza la librería `tempfile` para guardar el archivo y asegúrate de gestionar su eliminación o mantenimiento según sea necesario.
-- **Uso de Zonas Horarias:**  
-  Para mostrar fechas (por ejemplo, la fecha de última modificación de un módulo), utiliza el módulo `zoneinfo` (o alternativas como `pytz`) para ajustar la zona horaria según corresponda.
+  Utiliza la librería `tempfile` para manejar archivos descargados y asegúrate de su correcta eliminación o mantenimiento.
+- **Zonas Horarias:**  
+  Emplea `zoneinfo` (o `pytz`) para ajustar fechas según la zona horaria requerida (ej.: "Europe/Madrid").
 
 ---
 
-## 10. Ejemplo Completo de Función con Buenas Prácticas
+## 11. Autenticación Dinámica con `ini_environment_identificated`
+
+Esta estrategia permite que las funciones seleccionen automáticamente el método de acceso a las credenciales según el entorno:
+
+- **Entorno LOCAL:**  
+  - Valor: `"LOCAL"`  
+  - Método: Usa `json_keyfile_local`.
+
+- **Entorno GOOGLE COLAB:**  
+  - Valor: `"COLAB"`  
+  - Método: Usa `json_keyfile_colab`.
+
+- **Entornos GCP (incluyendo COLAB_ENTERPRISE):**  
+  - Valor: `"COLAB_ENTERPRISE"` o un `project_id` (por ejemplo, `"mi-proyecto"`)  
+  - Método: Utiliza Secret Manager mediante `json_keyfile_GCP_secret_id`.  
+    - En `"COLAB_ENTERPRISE"`, el `project_id` se extrae de la variable `GOOGLE_CLOUD_PROJECT`.
+
+### Ejemplo de Configuración
+```python
+config = {
+    "ini_environment_identificated": "COLAB",  # Opciones: "LOCAL", "COLAB", "COLAB_ENTERPRISE" o un project_id
+    "json_keyfile_local": r"D://ruta/a/credenciales.json",    # Usado para "LOCAL"
+    "json_keyfile_colab": "/ruta/a/credenciales.json",          # Usado para "COLAB"
+    "json_keyfile_GCP_secret_id": "mi-secret-id",              # Usado para entornos GCP
+    # Otros parámetros...
+}
+```
+
+---
+
+## 12. Ejemplo Completo de Función con Buenas Prácticas
+
+Este ejemplo ilustra el proceso completo, desde la descarga (si es necesario) hasta la importación y reporte del módulo, incluyendo validaciones, mensajes de log y manejo de errores.
 
 ```python
 # @title load_custom_libs()
@@ -197,12 +250,12 @@ def load_custom_libs(config_list: list) -> None:
       - module_host (str): "GD" para rutas locales o "github" para archivos en GitHub.
       - module_path (str): Ruta local o URL al archivo .py.
       - selected_functions_list (list, opcional): Lista de nombres de funciones/clases a importar.
-        Si está vacío se importan todos los objetos definidos en el módulo.
+        Si está vacío, se importan todos los objetos definidos en el módulo.
 
     Para módulos alojados en GitHub, la URL se transforma a formato raw y se descarga en un archivo temporal.
     La fecha de última modificación se muestra ajustada a la zona horaria de Madrid.
 
-    Retorna:
+    Returns:
         None
 
     Raises:
@@ -316,3 +369,7 @@ def load_custom_libs(config_list: list) -> None:
         globals().update(selected_objects)
         _print_module_report(module_name, module_path, mod_date, selected_objects)
 ```
+
+---
+
+Esta versión reorganizada y sintética permite que el manual se utilice directamente como prompt para la creación o revisión de funciones en Python, garantizando claridad, consistencia y eficiencia en su aplicación.
