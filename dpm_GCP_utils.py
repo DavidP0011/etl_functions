@@ -23,14 +23,20 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
     añadiendo al final las columnas 'fecha_actualizacion_GBQ' (fecha en la que la tabla fue creada o modificada)
     y 'fecha_actualizacion_df' (fecha en la que se creó el DataFrame).
 
+    La autenticación ahora se realiza a partir de la key 'ini_environment_identificated' en el diccionario config.
+
     Args:
         config (dict):
             - project_id (str) [requerido]: El ID del proyecto de BigQuery.
             - datasets (list) [opcional]: Lista de los IDs de los datasets a consultar. Si no se proporciona,
               se consultan todos los disponibles en el proyecto.
             - include_tables (bool) [opcional]: Indica si se deben incluir las tablas en el esquema. Por defecto es True.
+            - ini_environment_identificated (str, requerido): Valor que indica el entorno de ejecución detectado.
+              Puede ser:
+                * 'COLAB' o 'LOCAL' para entornos local/Colab (se usará json_keyfile_colab).
+                * 'COLAB_ENTERPRISE' o el ID del proyecto de GCP para entornos GCP (se usará json_keyfile_GCP_secret_id).
             - json_keyfile_GCP_secret_id (str, requerido en entornos GCP): Secret ID del JSON de credenciales alojado en Secret Manager.
-            - json_keyfile_colab (str, requerido en entornos no GCP): Ruta al archivo JSON de credenciales.
+            - json_keyfile_colab (str, requerido en entornos local/Colab): Ruta al archivo JSON de credenciales.
 
     Returns:
         pd.DataFrame: DataFrame con las columnas:
@@ -61,17 +67,38 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
     # ────────────────────────────── INICIO DEL PROCESO ──────────────────────────────
     print("\n🔹🔹🔹 [START ▶️] Inicio del proceso de extracción del esquema de BigQuery 🔹🔹🔹\n", flush=True)
 
-    # ────────────────────────────── AUTENTICACIÓN ──────────────────────────────
-    is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
-    if is_gcp:
+    # ────────────────────────────── AUTENTICACIÓN CON NUEVA KEY ──────────────────────────────
+    # Obtener el valor de 'ini_environment_identificated' del diccionario de configuración.
+    ini_env = config.get("ini_environment_identificated")
+    if not ini_env:
+        raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en config.")
+
+    # Si el entorno es 'COLAB' o 'LOCAL', se utiliza la autenticación local/Colab.
+    if ini_env in ["COLAB", "LOCAL"]:
+        json_keyfile_colab_str = config.get("json_keyfile_colab")
+        if not json_keyfile_colab_str:
+            raise ValueError("[VALIDATION [ERROR ❌]] En entornos local/Colab se debe proporcionar 'json_keyfile_colab' en config.")
+        print("[AUTHENTICATION [START ▶️]] Iniciando autenticación en entorno local/Colab mediante JSON de credenciales...", flush=True)
+        try:
+            creds = Credentials.from_service_account_file(json_keyfile_colab_str)
+            print("[AUTHENTICATION [SUCCESS ✅]] Autenticación en entorno local/Colab completada.", flush=True)
+        except Exception as e:
+            raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación en entorno local/Colab: {e}")
+    else:
+        # Para cualquier otro valor (ej. 'COLAB_ENTERPRISE' o un project_id de GCP), se asume autenticación en GCP.
         json_keyfile_GCP_secret_id_str = config.get("json_keyfile_GCP_secret_id")
         if not json_keyfile_GCP_secret_id_str:
             raise ValueError("[VALIDATION [ERROR ❌]] En entornos GCP se debe proporcionar 'json_keyfile_GCP_secret_id' en config.")
         print("[AUTHENTICATION [START ▶️]] Iniciando autenticación en entorno GCP mediante Secret Manager...", flush=True)
         from google.cloud import secretmanager
-        project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        # Si el entorno es 'COLAB_ENTERPRISE', se intenta obtener el project_id de la variable de entorno;
+        # en caso contrario, se asume que 'ini_environment_identificated' contiene el project_id.
+        if ini_env == "COLAB_ENTERPRISE":
+            project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        else:
+            project_id_env = ini_env
         if not project_id_env:
-            raise ValueError("[VALIDATION [ERROR ❌]] No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT'.")
+            raise ValueError("[VALIDATION [ERROR ❌]] No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT' para autenticación en GCP.")
         try:
             client_sm = secretmanager.SecretManagerServiceClient()
             secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
@@ -82,16 +109,6 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
             print(f"[AUTHENTICATION [SUCCESS ✅]] Autenticación en entorno GCP completada. (Secret Manager: {json_keyfile_GCP_secret_id_str})", flush=True)
         except Exception as e:
             raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación en GCP: {e}")
-    else:
-        json_keyfile_colab_str = config.get("json_keyfile_colab")
-        if not json_keyfile_colab_str:
-            raise ValueError("[VALIDATION [ERROR ❌]] En entornos local/Colab se debe proporcionar 'json_keyfile_colab' en config.")
-        print("[AUTHENTICATION [START ▶️]] Iniciando autenticación en entorno local/Colab mediante JSON de credenciales...", flush=True)
-        try:
-            creds = Credentials.from_service_account_file(json_keyfile_colab_str)
-            print("[AUTHENTICATION [SUCCESS ✅]] Autenticación en entorno local/Colab completada.", flush=True)
-        except Exception as e:
-            raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación en entorno local/Colab: {e}")
 
     # ────────────────────────────── VALIDACIÓN DE PARÁMETROS ──────────────────────────────
     project_id_str = config.get('project_id')
@@ -204,8 +221,9 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
     # Se añade la fecha de creación del DataFrame (constante para todas las filas)
     df_tables_fields["fecha_actualizacion_df"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    print("\n🔹🔹🔹 [END [FINISHED 🏁]] Esquema de BigQuery extraído y procesado correctamente. 🔹🔹🔹\n", flush=True)
+    print("\n🔹🔹🔹 [END [FINISHED ✅]] Esquema de BigQuery extraído y procesado correctamente. 🔹🔹🔹\n", flush=True)
     return df_tables_fields
+
 
 
 
@@ -259,7 +277,10 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
             - buckets (list) [opcional]: Nombres de los buckets a consultar. Si no se proporciona,
               se listan todos los buckets disponibles en el proyecto.
             - include_objects (bool) [opcional]: Si True, detalla también los objetos en cada bucket. Por defecto True.
-            - json_keyfile_GCP_secret_id (str, requerido en GCP): ID del secreto en Secret Manager que contiene las credenciales.
+            - ini_environment_identificated (str, requerido): Valor que indica el entorno de ejecución detectado.
+                * 'COLAB' o 'LOCAL' para entornos local/Colab (se usará json_keyfile_colab).
+                * 'COLAB_ENTERPRISE' o el ID del proyecto de GCP para entornos GCP (se usará json_keyfile_GCP_secret_id).
+            - json_keyfile_GCP_secret_id (str, requerido en entornos GCP): ID del secreto en Secret Manager que contiene las credenciales.
             - json_keyfile_colab (str, requerido fuera de GCP): Ruta local al JSON de credenciales.
     
     Returns:
@@ -277,22 +298,40 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
     from google.cloud import storage
     from google.oauth2.service_account import Credentials
 
-    # ────────────────────────────── Mensaje de inicio ─────────────────────────
     print("\n🔹🔹🔹 [START ▶️] Inicio del proceso de extracción extendida de GCS 🔹🔹🔹\n", flush=True)
 
-    # ────────────────────────────── AUTENTICACIÓN ──────────────────────────────
-    is_gcp = bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
-    if is_gcp:
+    # ────────────────────────────── AUTENTICACIÓN CON NUEVA KEY ──────────────────────────────
+    # Obtener la key 'ini_environment_identificated' del diccionario de configuración
+    ini_env = config.get("ini_environment_identificated")
+    if not ini_env:
+        raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en config.")
+
+    # Si el entorno es 'COLAB' o 'LOCAL', se utiliza autenticación local/Colab mediante archivo JSON
+    if ini_env in ["COLAB", "LOCAL"]:
+        json_keyfile_colab_str = config.get("json_keyfile_colab")
+        if not json_keyfile_colab_str:
+            raise ValueError("[VALIDATION [ERROR ❌]] En entornos local/Colab se debe proporcionar 'json_keyfile_colab' en config.")
+        print("[AUTHENTICATION [START ▶️]] Autenticación en entorno local/Colab mediante JSON de credenciales...", flush=True)
+        try:
+            creds = Credentials.from_service_account_file(json_keyfile_colab_str)
+            print("[AUTHENTICATION [SUCCESS ✅]] Autenticación local/Colab completada.", flush=True)
+        except Exception as e:
+            raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación local/Colab: {e}")
+    else:
+        # Para cualquier otro valor (ej. 'COLAB_ENTERPRISE' o un project_id de GCP), se utiliza autenticación en GCP mediante Secret Manager.
         json_keyfile_GCP_secret_id_str = config.get("json_keyfile_GCP_secret_id")
         if not json_keyfile_GCP_secret_id_str:
-            raise ValueError(
-                "[VALIDATION [ERROR ❌]] En entornos GCP se debe proporcionar 'json_keyfile_GCP_secret_id' en config."
-            )
+            raise ValueError("[VALIDATION [ERROR ❌]] En entornos GCP se debe proporcionar 'json_keyfile_GCP_secret_id' en config.")
         print("[AUTHENTICATION [START ▶️]] Autenticación en GCP mediante Secret Manager...", flush=True)
         from google.cloud import secretmanager
-        project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        # Si el entorno es 'COLAB_ENTERPRISE', se obtiene el project_id desde la variable de entorno;
+        # de lo contrario, se asume que 'ini_environment_identificated' contiene el project_id.
+        if ini_env == "COLAB_ENTERPRISE":
+            project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        else:
+            project_id_env = ini_env
         if not project_id_env:
-            raise ValueError("[VALIDATION [ERROR ❌]] No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT'.")
+            raise ValueError("[VALIDATION [ERROR ❌]] No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT' o 'ini_environment_identificated' no es válida para autenticación en GCP.")
         try:
             client_sm = secretmanager.SecretManagerServiceClient()
             secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
@@ -303,18 +342,6 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
             print(f"[AUTHENTICATION [SUCCESS ✅]] Autenticación GCP completada. (Secret: {json_keyfile_GCP_secret_id_str})", flush=True)
         except Exception as e:
             raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación en GCP: {e}")
-    else:
-        json_keyfile_colab_str = config.get("json_keyfile_colab")
-        if not json_keyfile_colab_str:
-            raise ValueError(
-                "[VALIDATION [ERROR ❌]] En entornos local/Colab se debe proporcionar 'json_keyfile_colab' en config."
-            )
-        print("[AUTHENTICATION [START ▶️]] Autenticación en entorno local/Colab mediante JSON de credenciales...", flush=True)
-        try:
-            creds = Credentials.from_service_account_file(json_keyfile_colab_str)
-            print("[AUTHENTICATION [SUCCESS ✅]] Autenticación local/Colab completada.", flush=True)
-        except Exception as e:
-            raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación local/Colab: {e}")
 
     # ────────────────────────────── VALIDACIÓN DE PARÁMETROS ──────────────────────────────
     project_id_str = config.get('project_id')
@@ -337,17 +364,15 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
     print("[EXTRACTION [START ▶️]] Obteniendo buckets del proyecto...", flush=True)
     try:
         if buckets_incluidos_list:
-            # Se especifican los buckets
             buckets = [storage_client.bucket(b_name) for b_name in buckets_incluidos_list]
             print(f"[EXTRACTION [INFO ℹ️]] Se han especificado {len(buckets_incluidos_list)} buckets para la consulta.", flush=True)
         else:
-            # Se listan todos los buckets del proyecto
             buckets = list(storage_client.list_buckets(project=project_id_str))
             print(f"[EXTRACTION [INFO ℹ️]] Se encontraron {len(buckets)} buckets en el proyecto.", flush=True)
     except Exception as e:
         raise RuntimeError(f"[EXTRACTION [ERROR ❌]] Error al obtener los buckets: {e}")
 
-    # ────────────────────────────── Helper: verificar acceso público ──────────────────────
+    # ────────────────────────────── Helper: verificar acceso público ──────────────────────────────
     def _is_public(bucket_obj):
         """
         Retorna True si el bucket permite acceso anónimo o allAuthenticatedUsers
@@ -356,77 +381,50 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
         try:
             policy = bucket_obj.get_iam_policy(requested_policy_version=3)
         except Exception:
-            # Si no se puede obtener la policy (falta de permisos), devolvemos None
             return None
-
         for binding in policy.bindings:
             members = binding.get("members", [])
             if "allUsers" in members or "allAuthenticatedUsers" in members:
                 return True
         return False
 
-    # ────────────────────────────── RECOPILACIÓN DE INFORMACIÓN ─────────────────────────
+    # ────────────────────────────── RECOPILACIÓN DE INFORMACIÓN ──────────────────────────────
     gcs_info_list = []
-
     for bucket_obj in buckets:
         bucket_name_str = bucket_obj.name
 
-        # Forzamos una "carga" de propiedades (en caso de que no estén en memoria)
-        # Nota: a veces client.bucket(...) no trae todo hasta que se llama a un método.
+        # Forzar la carga de propiedades del bucket (si no se han cargado)
         try:
             bucket_obj.reload()
         except Exception as e:
-            print(f"[EXTRACTION [WARN ⚠️]] No se pudieron recargar propiedades para el bucket '{bucket_name_str}': {e}")
+            print(f"[EXTRACTION [WARN ⚠️]] No se pudieron recargar propiedades para el bucket '{bucket_name_str}': {e}", flush=True)
 
-        # ────────── Metadatos del bucket ──────────
         bucket_props = bucket_obj._properties
-        # Fecha de creación
-        time_created_bucket = bucket_obj.time_created  # datetime o None
+        time_created_bucket = bucket_obj.time_created
         fecha_creacion_bucket_str = (time_created_bucket.strftime("%Y-%m-%d %H:%M:%S")
                                      if time_created_bucket else None)
-        # Última modificación (metadatos)
-        updated_str = bucket_props.get("updated")  # Es un string en ISO8601
-        fecha_ultima_modificacion_bucket_str = updated_str  # Lo dejamos como str
-        
-        # Tipo de ubicación (REGIONAL, MULTI_REGIONAL, DUAL_REGIONAL)
-        tipo_ubicacion = bucket_props.get("locationType")  # None si no está
-        # Ubicación
-        ubicacion = bucket_obj.location  # p.e. "US-EAST1", "EU", "ASIA"
-        # Clase de almacenamiento
+        updated_str = bucket_props.get("updated")
+        fecha_ultima_modificacion_bucket_str = updated_str
+        tipo_ubicacion = bucket_props.get("locationType")
+        ubicacion = bucket_obj.location
         clase_almacenamiento = bucket_obj.storage_class
-        # Acceso público
         acceso_publico_bool = _is_public(bucket_obj)
-        # Control de acceso (IAM vs ACL). 
-        # - Si uniform_bucket_level_access: True => "UNIFORM", caso contrario => "FINE"
         ubla_conf = bucket_obj.iam_configuration.get("uniformBucketLevelAccess", {})
         is_ubla_enabled = ubla_conf.get("enabled", False)
         control_acceso_str = "UNIFORM" if is_ubla_enabled else "FINE"
-
-        # Protección: public_access_prevention, versioning, etc.
         public_access_prevention = bucket_obj.iam_configuration.get("publicAccessPrevention")
         versioning_enabled = bucket_obj.versioning_enabled
         proteccion_str = f"publicAccessPrevention={public_access_prevention}, versioning={versioning_enabled}"
-
-        # Espacio de nombres jerárquico (meramente informativo, GCS es plano)
         espacio_nombres_jerarquico = "No hay jerarquía real en GCS"
-        
-        # Retención de buckets
-        retencion_seg = bucket_obj.retention_period  # en segundos o None
-        # Reglas de ciclo de vida
-        reglas_ciclo_vida = bucket_obj.lifecycle_rules  # lista de dict
-        # Etiquetas
-        etiquetas_dict = bucket_obj.labels  # dict o None
-        # Pagos del solicitante
+        retencion_seg = bucket_obj.retention_period
+        reglas_ciclo_vida = bucket_obj.lifecycle_rules
+        etiquetas_dict = bucket_obj.labels
         pagos_solicitante_bool = bucket_obj.requester_pays
-        # Replicación
-        replication_rpo = bucket_obj.rpo  # "DEFAULT" o "ASYNC_TURBO" en dual-region
-        # Encriptación
-        #   - Si bucket_obj.default_kms_key_name es None => usa Google-managed encryption
+        replication_rpo = bucket_obj.rpo
         encriptacion_str = bucket_obj.default_kms_key_name or "Google-managed"
-        # Estadísticas de seguridad (Placeholder: podríamos armar algo condicional)
         estadisticas_seguridad_str = None
 
-        # ────────── Si include_objects: recorremos los blobs ──────────
+        # ────────── Si include_objects es True, se listan también los objetos del bucket ──────────
         if include_objects_bool:
             print(f"\n[EXTRACTION [INFO ℹ️]] Listando objetos en bucket '{bucket_name_str}'...", flush=True)
             try:
@@ -434,7 +432,6 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
                 print(f"[EXTRACTION [SUCCESS ✅]] Se encontraron {len(blobs)} objetos en '{bucket_name_str}'.", flush=True)
             except Exception as e:
                 print(f"[EXTRACTION [ERROR ❌]] Error al listar objetos en '{bucket_name_str}': {e}", flush=True)
-                # Si no podemos listar blobs, al menos almacenamos una fila con info del bucket
                 gcs_info_list.append({
                     'project_id': project_id_str,
                     'bucket_name': bucket_name_str,
@@ -465,11 +462,8 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
                 object_name_str = blob.name
                 content_type_str = blob.content_type
                 size_mb_float = round(blob.size / (1024 * 1024), 2) if blob.size else 0.0
-                # Fecha de creación/última modificación del objeto
-                # time_created y updated
                 time_created_obj = blob.time_created
                 updated_obj = blob.updated
-                # Damos prioridad a time_created
                 if time_created_obj:
                     fecha_actualizacion_GCS_str = time_created_obj.strftime("%Y-%m-%d %H:%M:%S")
                 elif updated_obj:
@@ -502,7 +496,7 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
                     'fecha_actualizacion_GCS': fecha_actualizacion_GCS_str
                 })
         else:
-            # Si no incluimos objetos, registramos solo 1 fila por bucket
+            # Si no se incluyen objetos, se registra una sola fila por bucket
             gcs_info_list.append({
                 'project_id': project_id_str,
                 'bucket_name': bucket_name_str,
@@ -536,8 +530,9 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
     except Exception as e:
         raise RuntimeError(f"[TRANSFORMATION [ERROR ❌]] Error al convertir la información a DataFrame: {e}")
 
-    # Añadir fecha de creación del DataFrame
+    # Añadir la fecha de creación del DataFrame a todas las filas
     df_gcs["fecha_actualizacion_df"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    print("\n🔹🔹🔹 [END [FINISHED 🏁]] Esquema extendido de GCS obtenido correctamente. 🔹🔹🔹\n", flush=True)
+    print("\n🔹🔹🔹 [END [FINISHED ✅]] Esquema extendido de GCS obtenido correctamente. 🔹🔹🔹\n", flush=True)
     return df_gcs
+
