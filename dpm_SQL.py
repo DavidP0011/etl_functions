@@ -135,6 +135,20 @@ def DF_to_GBQ(params: dict) -> None:
     _cargar_dataframe(client, df, destination_table, if_exists)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ----------------------------------------------------------------------------
 # GBQ_execute_SQL()
 # ----------------------------------------------------------------------------
@@ -241,6 +255,20 @@ def GBQ_execute_SQL(params: dict) -> None:
         raise
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ----------------------------------------------------------------------------
 # SQL_generate_academic_date_str()
 # ----------------------------------------------------------------------------
@@ -314,6 +342,19 @@ FROM `{table_source}`;
     print("[END [FINISHED ✅]] SQL generado exitosamente.\n", flush=True)
     return SQL_script
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ----------------------------------------------------------------------------
 # SQL_generate_BI_view_str()
 # ----------------------------------------------------------------------------
@@ -382,6 +423,19 @@ WHERE {where_clause}
 """.strip()
     print("[END [FINISHED ✅]] Vista BI generada.\n", flush=True)
     return sql_script_str
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # ----------------------------------------------------------------------------
 # SQL_generate_CPL_to_contacts_str()
@@ -455,6 +509,19 @@ SELECT
     print("[END [FINISHED ✅]] SQL para CPL a contacts generado.\n", flush=True)
     return SQL_script
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ----------------------------------------------------------------------------
 # SQL_generate_cleaning_str()
 # ----------------------------------------------------------------------------
@@ -527,6 +594,19 @@ WHERE {where_clause}
 """.strip()
     print("[END [FINISHED ✅]] SQL de limpieza generado.\n", flush=True)
     return SQL_script
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # ----------------------------------------------------------------------------
 # SQL_generate_country_from_phone()
@@ -776,6 +856,13 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     print("[END [FINISHED ✅]] Proceso finalizado.\n", flush=True)
     
     return sql_script
+
+
+
+
+
+
+
 
 
 
@@ -1191,6 +1278,19 @@ LEFT JOIN deals_filtered f
     print("[END [FINISHED ✅]] SQL para ordinal de negocios generado.\n", flush=True)
     return SQL_script
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ----------------------------------------------------------------------------
 # SQL_generate_join_tables_str()
 # ----------------------------------------------------------------------------
@@ -1317,6 +1417,19 @@ SELECT
 """.strip()
     print("[END [FINISHED ✅]] SQL para unión de tablas generado.\n", flush=True)
     return SQL_script
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ----------------------------------------------------------------------------
@@ -1478,6 +1591,19 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     sql_script = update_sql + "\n" + drop_sql
     print("[END [FINISHED ✅]] SQL para nuevas columnas generado.\n", flush=True)
     return sql_script, mapping_df
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ----------------------------------------------------------------------------
