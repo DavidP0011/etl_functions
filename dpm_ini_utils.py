@@ -1,42 +1,6 @@
 # __________________________________________________________________________________________________________________________________________________________
 # environment_identification
 # __________________________________________________________________________________________________________________________________________________________
-def ini_google_drive_instalation(params: dict) -> None:
-    """
-    Monta Google Drive en función del entorno de ejecución especificado en params.
-
-    Args:
-        params (dict):
-            - entorno_identificado_str (str): Valor que indica el entorno de ejecución.
-              Los posibles valores pueden ser:
-                * 'COLAB_ENTERPRISE'
-                * 'COLAB'
-                * Cualquier otro valor que indique un entorno diferente (por ejemplo, el nombre de un proyecto GCP o 'LOCAL').
-
-    Returns:
-        None
-
-    Raises:
-        ValueError: Si falta la key 'entorno_identificado_str' en params.
-    """
-    entorno_identificado_str = params.get('entorno_identificado_str')
-    if not entorno_identificado_str:
-        raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'entorno_identificado_str' en params.")
-
-    # Montar Google Drive si el entorno es Colab (estándar o Enterprise)
-    if entorno_identificado_str in ['COLAB', 'COLAB_ENTERPRISE']:
-        try:
-            from google.colab import drive
-            drive.mount('/content/drive')
-            print("[INFO ℹ️] Google Drive montado correctamente.", flush=True)
-        except ImportError as e:
-            print(f"[ERROR ❌] No se pudo importar google.colab para montar Google Drive: {e}", flush=True)
-    else:
-        print(f"[INFO ℹ️] El entorno '{entorno_identificado_str}' no requiere montaje de Google Drive.", flush=True)
-
-# __________________________________________________________________________________________________________________________________________________________
-# environment_identification
-# __________________________________________________________________________________________________________________________________________________________
 
 def ini_environment_identification() -> str:
     """
@@ -59,7 +23,7 @@ def ini_environment_identification() -> str:
 
     # ────────────────────────────── DETECCIÓN DEL ENTORNO ──────────────────────────────
     # Verificar si se está en Colab Enterprise
-    if os.environ.get('VERTEX_PRODUCT') == 'COLAB_ENTERPRISE':
+    if os.environ.get('VERTEX_PRODUCT') == 'VERTEX_PRODUCT':
         return os.environ.get('VERTEX_PRODUCT')
     
     # Verificar si se está en un entorno GCP (Google Cloud Platform)
@@ -75,6 +39,59 @@ def ini_environment_identification() -> str:
 
     # Por defecto, se asume que se está en un entorno local
     return 'LOCAL'
+
+
+
+
+
+
+
+
+# __________________________________________________________________________________________________________________________________________________________
+# environment_identification
+# __________________________________________________________________________________________________________________________________________________________
+def ini_google_drive_instalation(params: dict) -> None:
+    """
+    Monta Google Drive en función del entorno de ejecución especificado en params.
+
+    Args:
+        params (dict):
+            - entorno_identificado_str (str): Valor que indica el entorno de ejecución.
+              Los posibles valores pueden ser:
+                * 'VERTEX_PRODUCT'
+                * 'COLAB'
+                * Cualquier otro valor que indique un entorno diferente (por ejemplo, el nombre de un proyecto GCP o 'LOCAL').
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: Si falta la key 'entorno_identificado_str' en params.
+    """
+    entorno_identificado_str = params.get('entorno_identificado_str')
+    if not entorno_identificado_str:
+        raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'entorno_identificado_str' en params.")
+
+    # Montar Google Drive si el entorno es Colab (estándar o Enterprise)
+    if entorno_identificado_str in ['COLAB']:
+        try:
+            from google.colab import drive
+            drive.mount('/content/drive')
+            print("[INFO ℹ️] Google Drive montado correctamente.", flush=True)
+        except ImportError as e:
+            print(f"[ERROR ❌] No se pudo importar google.colab para montar Google Drive: {e}", flush=True)
+    else:
+        print(f"[INFO ℹ️] El entorno '{entorno_identificado_str}' no requiere montaje de Google Drive.", flush=True)
+
+
+
+
+
+
+
+
+
+
 
 
 
