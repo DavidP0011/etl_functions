@@ -91,9 +91,19 @@ def SQL_generate_report_str(params: dict) -> str:
 
 ---
 
-## 5. Seguimiento y Mensajes de Log
+## 5. Prints para Seguimiento y Mensajes de Log
 
-### 5.1. Mensajes Estructurados
+### 5.1. Organización Visual
+- **Separadores y Encabezados:**  
+  Separa cada grupo de acciones o secciones con una línea en blanco y un encabezado visual (por ejemplo, usando "🔹🔹🔹") para agrupar fases o bloques de código dentro de la función. Por ejemplo, si la función procesa varias tablas de GBQ o varios archivos, crea una separación en los prints por cada tabla.
+- **Estadísticas, métricas y resumen:**  
+  Al final de cada grupo de acciones anterior, haz print() de las estadísticas más importantes, y un resumen de lo realizado. Al final de la ejecución vuelve a hacer print recopilando todas las estadísticas, métricas y resumen parcial, y añade estadísticas, métricas y resumen final global.
+- **Barra de progreso:**  
+  Siempre que estimes posible, añade una barra de progreso e indicador numérico de % para aquellos procesos que suelan requerir tiempo. No uses nunca librerías especiales, usa solo print.
+- **Info de las APIs:**  
+  Siempre que sea posible, imprime con máximo detalle la respuestas que devuelven las APIs de los servicios a los que nos conectamos.
+
+### 5.3. Mensajes Estructurados
 Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman inmediatamente. Se deben usar mensajes con prefijos estandarizados para cada fase del proceso:
 
 - **Inicio y finalización:**
@@ -126,10 +136,6 @@ Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman inme
 
 - **Métricas y Reporte:**
   - `[METRICS [INFO ℹ️]]` → Información y estadísticas del proceso.
-
-### 5.2. Organización Visual
-- **Separadores y Encabezados:**  
-  Separa cada grupo de acciones o secciones con una línea en blanco y un encabezado visual (por ejemplo, usando "🔹🔹🔹") para agrupar fases o bloques de código dentro de la función.
 
 ---
 
