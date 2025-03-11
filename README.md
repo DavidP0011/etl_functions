@@ -117,7 +117,7 @@ Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman inme
   - `[AUTHENTICATION [ERROR ❌]]` → Error durante la autenticación.
 
 - **Extracción:**
-  - `[EXTRACTION [START ⏳]]` → Inicio de la extracción de datos.
+  - `[EXTRACTION [START ▶️]]` → Inicio de la extracción de datos.
   - `[EXTRACTION [SUCCESS ✅]]` → Extracción completada correctamente.
   - `[EXTRACTION [WARNING ⚠️]]` → Advertencias durante la extracción.
   - `[EXTRACTION [ERROR ❌]]` → Error durante la extracción.
