@@ -22,8 +22,8 @@ def ini_environment_identification() -> str:
     import os
 
     # ────────────────────────────── DETECCIÓN DEL ENTORNO ──────────────────────────────
-    # Verificar si se está en Colab Enterprise
-    if os.environ.get('VERTEX_PRODUCT') == 'VERTEX_PRODUCT':
+    # Verificar si se está en Colab Enterprise / VERTEX_PRODUCT
+    if os.environ.get('VERTEX_PRODUCT') == 'COLAB_ENTERPRISE':
         return os.environ.get('VERTEX_PRODUCT')
     
     # Verificar si se está en un entorno GCP (Google Cloud Platform)
