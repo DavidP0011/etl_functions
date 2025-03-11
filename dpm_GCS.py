@@ -263,7 +263,6 @@ def GCS_files_to_GBQ(params: dict) -> None:
 
     Raises:
         ValueError: Si faltan parámetros obligatorios o ocurre un error durante la autenticación/filtrado.
-
     """
 
     import os, sys, re, json
@@ -279,6 +278,7 @@ def GCS_files_to_GBQ(params: dict) -> None:
     # ─────────────────────────────────────────────
     # 1) VALIDACIÓN DE PARÁMETROS
     # ─────────────────────────────────────────────
+    print("\n🔸🔸🔸 VALIDACIÓN DE PARÁMETROS 🔸🔸🔸", flush=True)
     gcp_project_id = params.get("gcp_project_id")
     gcs_bucket_name = params.get("gcs_bucket_name")
     gbq_dataset_id = params.get("gbq_dataset_id")
@@ -290,7 +290,6 @@ def GCS_files_to_GBQ(params: dict) -> None:
     inference_threshold = params.get("inference_threshold", 0.95)
     inference_field_type_chunk_size = params.get("inference_field_type_chunk_size", 1000)
 
-    # Nuevas claves:
     target_table_names_suffix = params.get("target_table_names_suffix", "")
     target_table_names_replace = params.get("target_table_names_replace", {})
 
@@ -300,6 +299,7 @@ def GCS_files_to_GBQ(params: dict) -> None:
     # ─────────────────────────────────────────────
     # 2) AUTENTICACIÓN
     # ─────────────────────────────────────────────
+    print("\n🔸🔸🔸 AUTENTICACIÓN 🔸🔸🔸", flush=True)
     def _autenticar_gcp(project_id: str):
         print("[AUTHENTICATION [INFO ℹ️]] Iniciando autenticación...", flush=True)
         is_colab = ('google.colab' in sys.modules)
@@ -307,11 +307,10 @@ def GCS_files_to_GBQ(params: dict) -> None:
             json_path = params.get("json_keyfile_colab")
             if not json_path:
                 raise ValueError("[AUTHENTICATION [ERROR ❌]] En Colab se debe proporcionar 'json_keyfile_colab'.")
-            print("[AUTHENTICATION [INFO ℹ️]] Entorno Colab detectado. Usando credenciales JSON...", flush=True)
+            print("[AUTHENTICATION [INFO ℹ️]] Entorno Colab detectado. Usando credenciales JSON desde:", json_path, flush=True)
             creds = service_account.Credentials.from_service_account_file(json_path)
             print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas (Colab).", flush=True)
             return creds
-        # Entorno GCP
         if os.environ.get("GOOGLE_CLOUD_PROJECT"):
             secret_id = params.get("json_keyfile_GCP_secret_id")
             if not secret_id:
@@ -323,13 +322,12 @@ def GCS_files_to_GBQ(params: dict) -> None:
             secret_string = response.payload.data.decode("UTF-8")
             secret_info = json.loads(secret_string)
             creds = service_account.Credentials.from_service_account_info(secret_info)
-            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas (GCP).", flush=True)
+            print(f"[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas desde Secret Manager (secret: {secret_id}).", flush=True)
             return creds
-        # Entorno local
         json_path = params.get("json_keyfile_colab")
         if not json_path:
             raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local se debe proporcionar 'json_keyfile_colab'.")
-        print("[AUTHENTICATION [INFO ℹ️]] Entorno local detectado. Usando credenciales JSON...", flush=True)
+        print("[AUTHENTICATION [INFO ℹ️]] Entorno local detectado. Usando credenciales JSON desde:", json_path, flush=True)
         creds = service_account.Credentials.from_service_account_file(json_path)
         print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas (local).", flush=True)
         return creds
@@ -337,12 +335,13 @@ def GCS_files_to_GBQ(params: dict) -> None:
     credentials = _autenticar_gcp(gcp_project_id)
     storage_client = storage.Client(project=gcp_project_id, credentials=credentials)
     bq_client = bigquery.Client(project=gcp_project_id, credentials=credentials)
+    print("[INFO ℹ️] Clientes GCP creados: Storage y BigQuery.", flush=True)
 
     # ─────────────────────────────────────────────
     # 3) FILTRO DE BLOBS
     # ─────────────────────────────────────────────
+    print("\n🔸🔸🔸 FILTRO DE BLOBS EN GCS 🔸🔸🔸", flush=True)
     def _blob_passes_filters(blob, fdict: dict) -> bool:
-        """Verifica si un blob cumple los criterios de filters_dic."""
         if not fdict.get("use_bool", False):
             return True
 
@@ -390,7 +389,6 @@ def GCS_files_to_GBQ(params: dict) -> None:
 
         return True
 
-    # Listar blobs y filtrar
     bucket = storage_client.bucket(gcs_bucket_name)
     prefix = ""
     delimiter = None
@@ -398,24 +396,26 @@ def GCS_files_to_GBQ(params: dict) -> None:
         delimiter = "/"
 
     all_blobs = list(storage_client.list_blobs(gcs_bucket_name, prefix=prefix, delimiter=delimiter))
+    print(f"[INFO ℹ️] Número total de blobs en bucket '{gcs_bucket_name}': {len(all_blobs)}", flush=True)
 
     if not files_list:
-        # Procesar todos con el filtro
         candidate_files = [blob.name for blob in all_blobs if _blob_passes_filters(blob, filters_dic)]
     else:
-        # Solo los de files_list que pasen el filtro
         candidate_files = []
         for blob in all_blobs:
             if blob.name in files_list and _blob_passes_filters(blob, filters_dic):
                 candidate_files.append(blob.name)
 
     if not candidate_files:
-        print("[INFO ℹ️] No se encontraron archivos que cumplan los filtros o coincidencias.")
+        print("[INFO ℹ️] No se encontraron archivos que cumplan los filtros o coincidencias.", flush=True)
         return
+
+    print(f"[INFO ℹ️] Archivos candidatos a procesar: {candidate_files}", flush=True)
 
     # ─────────────────────────────────────────────
     # 4) NORMALIZAR COLUMNAS
     # ─────────────────────────────────────────────
+    print("\n🔸🔸🔸 NORMALIZACIÓN DE COLUMNAS 🔸🔸🔸", flush=True)
     def normalize_column_name(name: str) -> str:
         name = unicodedata.normalize('NFKD', name).encode('ASCII', 'ignore').decode('utf-8')
         name = name.replace('ñ', 'n').replace('Ñ', 'N')
@@ -425,15 +425,15 @@ def GCS_files_to_GBQ(params: dict) -> None:
 
     def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         df.columns = [normalize_column_name(c) for c in df.columns]
-        # Remover comillas dobles en celdas de texto
         obj_cols = df.select_dtypes(include=["object"]).columns
         for col in obj_cols:
             df[col] = df[col].str.replace('"', '', regex=False).str.strip()
         return df
 
     # ─────────────────────────────────────────────
-    # 5) INFERENCIA DE TIPOS
+    # 5) INFERENCIA DE TIPOS DE DATOS
     # ─────────────────────────────────────────────
+    print("\n🔸🔸🔸 INFERENCIA DE TIPOS DE DATOS 🔸🔸🔸", flush=True)
     def _es_fecha(valor) -> bool:
         val_str = str(valor).strip()
         if not any(ch.isdigit() for ch in val_str):
@@ -515,12 +515,12 @@ def GCS_files_to_GBQ(params: dict) -> None:
     # ─────────────────────────────────────────────
     # 6) CONVERSIÓN DE CHUNKS
     # ─────────────────────────────────────────────
+    print("\n🔸🔸🔸 CONVERSIÓN DE CHUNKS 🔸🔸🔸", flush=True)
     def _convertir_chunk(chunk_df: pd.DataFrame, esquema: dict) -> pd.DataFrame:
         for col, tipo in esquema.items():
             if tipo == "INT64":
                 try:
                     converted = pd.to_numeric(chunk_df[col], errors="coerce")
-                    # Verificar si todos los valores no nulos son enteros
                     if not (converted.dropna() % 1 == 0).all():
                         raise ValueError("La columna contiene valores decimales.")
                     chunk_df[col] = converted.astype("Int64")
@@ -534,8 +534,7 @@ def GCS_files_to_GBQ(params: dict) -> None:
             elif tipo == "BOOL":
                 chunk_df[col] = chunk_df[col].apply(_normalizar_bool)
             else:
-                # Aquí se asume que el tipo es STRING.
-                # Se convierte la columna a string y se reemplazan los valores "\N" por null (np.nan)
+                # Para STRING: se reemplaza "\N" por np.nan
                 chunk_df[col] = chunk_df[col].astype(str)
                 chunk_df[col] = chunk_df[col].replace(r'\N', np.nan)
         return chunk_df
@@ -543,23 +542,28 @@ def GCS_files_to_GBQ(params: dict) -> None:
     # ─────────────────────────────────────────────
     # 7) PROCESAR ARCHIVOS
     # ─────────────────────────────────────────────
-    print("[START ▶️] Iniciando proceso GCS_files_to_GBQ()", flush=True)
-
+    print("\n🔸🔸🔸 INICIO DEL PROCESAMIENTO DE ARCHIVOS 🔸🔸🔸", flush=True)
     for file_path in candidate_files:
-        print(f"\n[EXTRACTION [START ⏳]] Procesando archivo: {file_path}", flush=True)
+        print("\n\n======================================================", flush=True)
+        print(f"🔹🔹🔹 PROCESADO DEL ARCHIVO {file_path} 🔹🔹🔹", flush=True)
+        print("======================================================", flush=True)
+        
+        # Extracción: descarga el blob y muestra detalles
         local_filename = file_path.replace("/", "_")
         try:
             blob = bucket.blob(file_path)
             blob.download_to_filename(local_filename)
             print(f"[EXTRACTION [SUCCESS ✅]] Archivo descargado localmente: {local_filename}", flush=True)
+            print(f"[INFO ℹ️] Detalles del blob - Tamaño: {blob.size} bytes, Última actualización: {blob.updated}", flush=True)
         except Exception as e:
             print(f"[EXTRACTION [ERROR ❌]] Error al descargar {file_path}: {e}", flush=True)
             continue
 
         ext = os.path.splitext(local_filename)[1].lower()
 
-        # 7A) Lectura de muestra p/ inferencia
-        print(f"[TRANSFORMATION [INFO ℹ️]] Leyendo {inference_field_type_chunk_size} filas para inferencia...", flush=True)
+        # 7A) Lectura de muestra para inferencia
+        print("\n🔹🔹🔹 LECTURA DE MUESTRA PARA INFERENCIA 🔹🔹🔹", flush=True)
+        print(f"[TRANSFORMATION [INFO ℹ️]] Leyendo {inference_field_type_chunk_size} filas para inferencia desde {local_filename}", flush=True)
         df_inferencia = None
         try:
             if ext in [".csv", ".tsv"]:
@@ -583,9 +587,10 @@ def GCS_files_to_GBQ(params: dict) -> None:
 
         df_inferencia = _normalize_columns(df_inferencia)
         esquema_inferido = _inferir_esquema(df_inferencia, inference_threshold)
-        print(f"[TRANSFORMATION [SUCCESS ✅]] Esquema inferido (muestra de {len(df_inferencia)} filas): {esquema_inferido}", flush=True)
+        print(f"[TRANSFORMATION [SUCCESS ✅]] Esquema inferido para muestra de {len(df_inferencia)} filas: {esquema_inferido}", flush=True)
 
         # 7B) Lectura completa en chunks
+        print("\n🔹🔹🔹 LECTURA COMPLETA EN CHUNKS 🔹🔹🔹", flush=True)
         def _get_df_iterator():
             if ext in [".csv", ".tsv"]:
                 sep = ";" if ext == ".csv" else "\t"
@@ -605,11 +610,13 @@ def GCS_files_to_GBQ(params: dict) -> None:
 
         try:
             df_iterator = _get_df_iterator()
+            print("[TRANSFORMATION [INFO ℹ️]] Iterador de chunks creado exitosamente.", flush=True)
         except Exception as e:
             print(f"[TRANSFORMATION [ERROR ❌]] Error al crear iterador de chunks: {e}", flush=True)
             continue
 
-        # 7C) Construir nombre final de tabla
+        # 7C) Construcción del nombre final de la tabla
+        print("\n🔹🔹🔹 CONSTRUCCIÓN DEL NOMBRE FINAL DE LA TABLA 🔹🔹🔹", flush=True)
         base_table_name = os.path.splitext(local_filename)[0]
         for old_str, new_str in target_table_names_replace.items():
             base_table_name = base_table_name.replace(old_str, new_str)
@@ -619,15 +626,17 @@ def GCS_files_to_GBQ(params: dict) -> None:
         final_table_name = re.sub(r"_+", "_", final_table_name).strip("_")[:300]
 
         table_id = f"{gbq_dataset_id}.{final_table_name}"
+        print(f"[INFO ℹ️] Tabla de destino en BigQuery: {table_id}", flush=True)
 
         chunk_index = 0
         proceso_exitoso = True
 
-        # 7D) Procesar cada chunk
+        # 7D) Procesar cada chunk y cargar a BigQuery
+        print("\n🔹🔹🔹 PROCESAMIENTO DE CHUNKS Y CARGA A BIGQUERY 🔹🔹🔹", flush=True)
         for chunk_df in df_iterator:
             chunk_df.dropna(how='all', inplace=True)
             n_rows = len(chunk_df)
-            print(f"[TRANSFORMATION [INFO ℹ️]] Chunk #{chunk_index} con {n_rows} filas", flush=True)
+            print(f"[TRANSFORMATION [INFO ℹ️]] Chunk #{chunk_index} contiene {n_rows} filas", flush=True)
             if n_rows == 0:
                 chunk_index += 1
                 continue
@@ -640,7 +649,8 @@ def GCS_files_to_GBQ(params: dict) -> None:
                     table_id,
                     project_id=gcp_project_id,
                     if_exists=modo_existencia,
-                    credentials=credentials
+                    credentials=credentials,
+                    verbose=False
                 )
                 print(f"[LOAD [SUCCESS ✅]] Chunk #{chunk_index} cargado en {table_id}", flush=True)
             except Exception as e:
@@ -651,6 +661,7 @@ def GCS_files_to_GBQ(params: dict) -> None:
             chunk_index += 1
 
         # 7E) Limpieza local
+        print("\n🔹🔹🔹 LIMPIEZA LOCAL 🔹🔹🔹", flush=True)
         if remove_local:
             try:
                 os.remove(local_filename)
@@ -659,8 +670,8 @@ def GCS_files_to_GBQ(params: dict) -> None:
                 print(f"[CLEANUP [WARNING ⚠️]] No se pudo eliminar {local_filename}: {e}", flush=True)
 
         if proceso_exitoso:
-            print(f"[END [FINISHED ✅]] Archivo {file_path} procesado exitosamente.", flush=True)
+            print(f"\n[END [FINISHED ✅]] Archivo {file_path} procesado exitosamente.", flush=True)
         else:
-            print(f"[END [FAILED ❌]] Archivo {file_path} no se procesó correctamente.", flush=True)
+            print(f"\n[END [FAILED ❌]] Archivo {file_path} no se procesó correctamente.", flush=True)
 
-    print("[END [FINISHED ✅]] Proceso GCS_files_to_GBQ() completado.", flush=True)
+    print("\n🔸🔸🔸 PROCESO GCS_files_to_GBQ() COMPLETADO 🔸🔸🔸\n", flush=True)
