@@ -1,5 +1,50 @@
-# @title load_custom_libs()
+# __________________________________________________________________________________________________________________________________________________________
+# environment_identification
+# __________________________________________________________________________________________________________________________________________________________
 
+def environment_identification() -> str:
+    """
+    Detecta el entorno de ejecución original basado en variables de entorno y módulos disponibles.
+
+    La función utiliza la siguiente lógica:
+      - Si la variable de entorno 'VERTEX_PRODUCT' tiene el valor 'COLAB_ENTERPRISE', se asume que se está ejecutando en Colab Enterprise y se devuelve ese valor original.
+      - Si la variable de entorno 'GOOGLE_CLOUD_PROJECT' existe, se asume que se está ejecutando en GCP y se devuelve su valor original.
+      - Si se puede importar el módulo 'google.colab', se asume que se está ejecutando en Colab (estándar) y se devuelve 'COLAB'.
+      - Si ninguna de las condiciones anteriores se cumple, se asume que el entorno es Local y se devuelve 'LOCAL'.
+
+    Returns:
+        str: Cadena que representa el entorno de ejecución original. Los posibles valores son:
+             - 'COLAB_ENTERPRISE'
+             - El valor de la variable 'GOOGLE_CLOUD_PROJECT' (ej.: 'mi-proyecto')
+             - 'COLAB'
+             - 'LOCAL'
+    """
+    import os
+
+    # ────────────────────────────── DETECCIÓN DEL ENTORNO ──────────────────────────────
+    # Verificar si se está en Colab Enterprise
+    if os.environ.get('VERTEX_PRODUCT') == 'COLAB_ENTERPRISE':
+        return os.environ.get('VERTEX_PRODUCT')
+    
+    # Verificar si se está en un entorno GCP (Google Cloud Platform)
+    if os.environ.get('GOOGLE_CLOUD_PROJECT'):
+        return os.environ.get('GOOGLE_CLOUD_PROJECT')
+    
+    # Verificar si se está en Colab estándar
+    try:
+        import google.colab  # type: ignore
+        return 'COLAB'
+    except ImportError:
+        pass
+
+    # Por defecto, se asume que se está en un entorno local
+    return 'LOCAL'
+
+
+
+# __________________________________________________________________________________________________________________________________________________________
+# load_custom_libs
+# __________________________________________________________________________________________________________________________________________________________
 def load_custom_libs(config_list: list) -> None:
     """
     Carga dinámicamente uno o varios módulos a partir de una lista de diccionarios de configuración.
