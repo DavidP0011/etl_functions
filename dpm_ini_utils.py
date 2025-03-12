@@ -1,6 +1,6 @@
 
 # __________________________________________________________________________________________________________________________________________________________
-# environment_identification
+# ini_install_libraries
 # __________________________________________________________________________________________________________________________________________________________
 def ini_install_libraries(params: dict) -> None:
     """
@@ -10,7 +10,7 @@ def ini_install_libraries(params: dict) -> None:
         params (dict):
             - name (str): Nombre descriptivo para mensajes.
             - is_system (bool, opcional): Indica si es un paquete del sistema.
-            - import_name (str): Nombre del módulo a importar (para librerías Python).
+            - import_name (str, opcional): Nombre del módulo a importar (para librerías Python).
             - pip_name (str, opcional): Nombre del paquete para instalar vía pip (si difiere del módulo).
             - version (str, opcional): Versión específica a instalar.
             - install_cmd (str, opcional): Comando de instalación personalizado.
@@ -21,24 +21,29 @@ def ini_install_libraries(params: dict) -> None:
         None
 
     Raises:
-        ValueError: Si falta 'name' o 'import_name' en params.
+        ValueError: Si falta 'name' o, para librerías de Python, 'import_name' en params.
     """
     from IPython import get_ipython
     import os
     import importlib
-    
 
-    # ────────────────────────────── Validación de Parámetros ──────────────────────────────
+    # ─────────────── Validación de Parámetros ───────────────
     name_str = params.get("name")
     is_system_bool = params.get("is_system", False)
-    import_name_str = params.get("import_name")
 
-    if not name_str or not import_name_str:
-        raise ValueError("[VALIDATION [ERROR ❌]] 'name' e 'import_name' son obligatorios en params.")
+    if not name_str:
+        raise ValueError("[VALIDATION [ERROR ❌]] 'name' es obligatorio en params.")
+
+    if not is_system_bool:
+        import_name_str = params.get("import_name")
+        if not import_name_str:
+            raise ValueError("[VALIDATION [ERROR ❌]] 'import_name' es obligatorio en params para librerías de Python.")
+    else:
+        import_name_str = None  # No es necesario para paquetes del sistema
 
     print(f"\n[START ▶️] Verificando instalación de {name_str}...", flush=True)
 
-    # ────────────────────────────── Verificación de Paquetes del Sistema ──────────────────────────────
+    # ─────────────── Verificación de Paquetes del Sistema ───────────────
     if is_system_bool:
         check_cmd_str = params.get("check_cmd")
         if not check_cmd_str:
@@ -54,15 +59,14 @@ def ini_install_libraries(params: dict) -> None:
             print(f"[INSTALLATION [SUCCESS ✅]] {name_str} ya está instalado.", flush=True)
         return
 
-    # ────────────────────────────── Verificación de Librerías de Python ──────────────────────────────
+    # ─────────────── Verificación de Librerías de Python ───────────────
     try:
         importlib.import_module(import_name_str)
         print(f"[INSTALLATION [SUCCESS ✅]] {name_str} ya está instalado.", flush=True)
     except ImportError:
         print(f"[INSTALLATION [INFO ℹ️]] {name_str} no está instalado. Procediendo con la instalación...", flush=True)
-
         install_cmd_str = params.get("install_cmd")
-        pip_name_str = params.get("pip_name", import_name_str)
+        pip_name_str = params.get("pip_name", params.get("import_name"))
         version_str = params.get("version")
         version_spec_str = f"=={version_str}" if version_str else ""
 
@@ -78,7 +82,7 @@ def ini_install_libraries(params: dict) -> None:
 
 
 # __________________________________________________________________________________________________________________________________________________________
-# environment_identification
+# ini_environment_identification
 # __________________________________________________________________________________________________________________________________________________________
 
 def ini_environment_identification() -> str:
