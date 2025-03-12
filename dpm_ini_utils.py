@@ -1,3 +1,82 @@
+
+# __________________________________________________________________________________________________________________________________________________________
+# environment_identification
+# __________________________________________________________________________________________________________________________________________________________
+def ini_install_libraries(params: dict) -> None:
+    """
+    Verifica e instala una librería de Python o un paquete del sistema.
+
+    Args:
+        params (dict):
+            - name (str): Nombre descriptivo para mensajes.
+            - is_system (bool, opcional): Indica si es un paquete del sistema.
+            - import_name (str): Nombre del módulo a importar (para librerías Python).
+            - pip_name (str, opcional): Nombre del paquete para instalar vía pip (si difiere del módulo).
+            - version (str, opcional): Versión específica a instalar.
+            - install_cmd (str, opcional): Comando de instalación personalizado.
+            - check_cmd (str, opcional): Comando para verificar la instalación (para paquetes del sistema).
+            - install_cmds (list, opcional): Lista de comandos para instalar paquetes del sistema.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: Si falta 'name' o 'import_name' en params.
+    """
+    from IPython import get_ipython
+    import os
+    import importlib
+    
+
+    # ────────────────────────────── Validación de Parámetros ──────────────────────────────
+    name_str = params.get("name")
+    is_system_bool = params.get("is_system", False)
+    import_name_str = params.get("import_name")
+
+    if not name_str or not import_name_str:
+        raise ValueError("[VALIDATION [ERROR ❌]] 'name' e 'import_name' son obligatorios en params.")
+
+    print(f"\n[START ▶️] Verificando instalación de {name_str}...", flush=True)
+
+    # ────────────────────────────── Verificación de Paquetes del Sistema ──────────────────────────────
+    if is_system_bool:
+        check_cmd_str = params.get("check_cmd")
+        if not check_cmd_str:
+            print(f"[VALIDATION [WARNING ⚠️]] No se especificó 'check_cmd' para {name_str}.", flush=True)
+            return
+
+        if os.system(check_cmd_str) != 0:
+            print(f"[INSTALLATION [INFO ℹ️]] {name_str} no está instalado. Procediendo con la instalación...", flush=True)
+            for cmd_str in params.get("install_cmds", []):
+                print(f"[INSTALLATION [COMMAND ▶️]] Ejecutando: {cmd_str}", flush=True)
+                os.system(cmd_str)
+        else:
+            print(f"[INSTALLATION [SUCCESS ✅]] {name_str} ya está instalado.", flush=True)
+        return
+
+    # ────────────────────────────── Verificación de Librerías de Python ──────────────────────────────
+    try:
+        importlib.import_module(import_name_str)
+        print(f"[INSTALLATION [SUCCESS ✅]] {name_str} ya está instalado.", flush=True)
+    except ImportError:
+        print(f"[INSTALLATION [INFO ℹ️]] {name_str} no está instalado. Procediendo con la instalación...", flush=True)
+
+        install_cmd_str = params.get("install_cmd")
+        pip_name_str = params.get("pip_name", import_name_str)
+        version_str = params.get("version")
+        version_spec_str = f"=={version_str}" if version_str else ""
+
+        if install_cmd_str:
+            print(f"[INSTALLATION [COMMAND ▶️]] Ejecutando comando personalizado: {install_cmd_str}", flush=True)
+            os.system(install_cmd_str)
+        else:
+            install_cmd_pip_str = f"pip install --upgrade {pip_name_str}{version_spec_str}"
+            print(f"[INSTALLATION [COMMAND ▶️]] Ejecutando: {install_cmd_pip_str}", flush=True)
+            os.system(install_cmd_pip_str)
+
+    print(f"[END [FINISHED ✅]] Proceso de instalación finalizado para {name_str}.\n", flush=True)
+
+
 # __________________________________________________________________________________________________________________________________________________________
 # environment_identification
 # __________________________________________________________________________________________________________________________________________________________
