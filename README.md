@@ -369,7 +369,3 @@ def load_custom_libs(config_list: list) -> None:
         globals().update(selected_objects)
         _print_module_report(module_name, module_path, mod_date, selected_objects)
 ```
-
----
-
-Esta versión reorganizada y sintética permite que el manual se utilice directamente como prompt para la creación o revisión de funciones en Python, garantizando claridad, consistencia y eficiencia en su aplicación.
