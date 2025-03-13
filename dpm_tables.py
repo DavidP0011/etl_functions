@@ -4,15 +4,10 @@
 from google.cloud import bigquery
 import pandas as pd
 import pandas_gbq
-from googletrans import Translator  # Versión 4.0.0-rc1
 import unicodedata
 import re
-import pycountry
-from rapidfuzz import process, fuzz
 import time
 import os
-from google.auth import default as gauth_default
-from google.oauth2 import service_account
 
 # ----------------------------------------------------------------------------
 # fields_name_format()
