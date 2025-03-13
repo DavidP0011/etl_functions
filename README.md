@@ -108,54 +108,73 @@ if leads_total_int == 0:
 
 ---
 
-## 6. Seguimiento y Mensajes de Log
+## 6. Seguimiento y Mensajes de Log usando únciamente print()
 
 ### 6.1. Mensajes Inmediatos
 
 Utiliza `print(..., flush=True)` para asegurar que los mensajes se impriman sin retrasos.
 
-### 6.2. Prefijos Estándar para Cada Fase
+### 6.2. Componentes del Mensaje
 
-- **Inicio/Finalización:**  
-  - `[START ▶️]` → Inicio.
-  - `[END [FINISHED ✅]]` → Finalización exitosa.
-  - `[END [FAILED ❌]]` → Finalización con errores.
-  
-- **Autenticación:**  
-  - `[AUTHENTICATION [INFO ℹ️]]`
-  - `[AUTHENTICATION [SUCCESS ✅]]`
-  - `[AUTHENTICATION [ERROR ❌]]`
-  
-- **Extracción:**  
-  - `[EXTRACTION [START ▶️]]`
-  - `[EXTRACTION [SUCCESS ✅]]`
-  - `[EXTRACTION [WARNING ⚠️]]`
-  - `[EXTRACTION [ERROR ❌]]`
-  
-- **Transformación:**  
-  - `[TRANSFORMATION [START ▶️]]`
-  - `[TRANSFORMATION [SUCCESS ✅]]`
-  - `[TRANSFORMATION [WARNING ⚠️]]`
-  - `[TRANSFORMATION [ERROR ❌]]`
-  
-- **Carga:**  
-  - `[LOAD [START ▶️]]`
-  - `[LOAD [SUCCESS ✅]]`
-  - `[LOAD [WARNING ⚠️]]`
-  - `[LOAD [ERROR ❌]]`
-  
-- **Métricas y Reporte:**  
-  - `[METRICS [INFO ℹ️]]`
+- **CABECERA:** Elemento opcional para resaltar el inicio de una sección clave del log. Mejora la legibilidad agrupando eventos relacionados.
 
-### 6.3. Organización Visual
+Ejemplos:
 
-- **Encabezados y Separadores:**  
-  Usa separadores visuales (por ejemplo, "🔹🔹🔹") para agrupar bloques de código o fases del proceso. Por ejemplo:
-  ```python
-  print(f"\n🔹🔹🔹 {mensaje} 🔹🔹🔹\n", flush=True)
-  ```
-- **Resumen y Estadísticas:**  
-  Imprime resúmenes y estadísticas al final de cada bloque y al finalizar la ejecución.
+```plaintext
+🔹🔹🔹 [START ▶️] Carga de Datos 🔹🔹🔹
+🔹🔹🔹 [PROCESSING 🔄] Transformando Datos 🔹🔹🔹
+```
+
+- **DESCRIPTOR:** Término en mayúsculas que describe claramente la acción o fase actual del proceso. Ejemplos habituales:
+
+  - `FILE SEARCH`
+  - `METADATA EXTRACTION`
+  - `VALIDATION`
+  - `PROCESSING`
+  - `BACKUP`
+
+- **STATE:** Estado específico del proceso con etiquetas estándar adaptadas al contexto:
+
+  - **START ▶️:** Indica el inicio del proceso.
+  - **INFO ℹ️:** Información intermedia relevante o puntual.
+  - **SUCCESS ✅ / FINISHED ✅:** Finalización exitosa.
+  - **WARNING ⚠️:** Situaciones que requieren atención sin interrumpir el flujo.
+  - **ERROR ❌ / FAILED ❌:** Errores críticos que afectan la ejecución.
+
+### Aplicación Dinámica
+
+- Comienza cada proceso con `[<DESCRIPTOR> START ▶️]`.
+- Usa `[<DESCRIPTOR> INFO ℹ️]` para información adicional relevante.
+- Finaliza operaciones con `[<DESCRIPTOR> SUCCESS ✅]` o `[<DESCRIPTOR> FINISHED ✅]`.
+- En errores críticos usa `[<DESCRIPTOR> ERROR ❌]` o `[<DESCRIPTOR> FAILED ❌]`.
+- Usa `[<DESCRIPTOR> WARNING ⚠️]` para alertas sobre posibles problemas.
+- Indica progreso mediante barras, porcentajes o contadores parciales/totales.
+- Cierra cada proceso con métricas y estadísticas relevantes.
+
+Aplicación Dinámica
+
+### Ejemplo
+
+```plaintext
+🔹🔹🔹 [START ▶️] Proceso de Búsqueda de Archivos 🔹🔹🔹
+[FILE SEARCH START ▶️] Iniciando búsqueda en la ruta especificada. (Progreso: 0%)
+[PROGRESS] [█_________] 10.75% completado (50/465)
+[LOCATED FILE INFO ℹ️] Archivo encontrado: video.mp4 (Ruta: /ruta/del/archivo). (Progreso: 25%)
+[PROGRESS] [████______] 50.32% completado (234/465)
+[LOCATED FILE INFO ℹ️] Archivo encontrado: audio.mp3 (Ruta: /ruta/del/archivo). (Progreso: 50%)
+[PROGRESS] [███████___] 75.48% completado (351/465)
+[LOCATED FILE INFO ℹ️] Archivo encontrado: imagen.jpg (Ruta: /ruta/del/archivo). (Progreso: 75%)
+[FILE SEARCH SUCCESS ✅] Búsqueda finalizada. Archivos encontrados: 465. Tiempo empleado: 1m 23s. Tamaño total: 3.5 GB. (Progreso: 100%)
+
+🔹🔹🔹 [METRICS 📊] Resumen de Ejecución 🔹🔹🔹
+[METRICS INFO ℹ️] Resumen de ejecución:
+  - Archivos procesados: 465
+  - Tamaño total: 3.5 GB
+  - Tiempo total de búsqueda: 1m 23s
+  - Tiempo de procesamiento de metadatos: 45s
+  - Advertencias detectadas: 1
+[END FINISHED ✅] Tiempo total de ejecución: 2m 08s
+```
 
 ---
 
