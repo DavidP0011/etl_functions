@@ -260,131 +260,70 @@ config = {
 Este ejemplo ilustra el proceso completo, desde la descarga (si es necesario) hasta la importación y reporte del módulo, incluyendo validaciones, mensajes de log y manejo de errores.
 
 ```python
-# @title load_custom_libs()
-def load_custom_libs(config_list: list) -> None:
+# @title function_example_str()
+def function_example_str(config: dict) -> str:
     """
-    Carga dinámicamente uno o varios módulos a partir de una lista de diccionarios de configuración.
+    Procesa un archivo de texto y genera un resumen en forma de cadena.
 
-    Cada diccionario debe incluir:
-      - module_host (str): "GD" para rutas locales o "github" para archivos en GitHub.
-      - module_path (str): Ruta local o URL al archivo .py.
-      - selected_functions_list (list, opcional): Lista de nombres de funciones/clases a importar.
-        Si está vacío, se importan todos los objetos definidos en el módulo.
-
-    Para módulos alojados en GitHub, la URL se transforma a formato raw y se descarga en un archivo temporal.
-    La fecha de última modificación se muestra ajustada a la zona horaria de Madrid.
+    Args:
+        config (dict):
+            - file_path (str): Ruta del archivo a procesar.
+            - uppercase (bool, opcional): Si es True, convierte las líneas procesadas a mayúsculas (default: False).
 
     Returns:
-        None
+        str: Resumen del procesamiento que incluye la ruta del archivo, total de líneas leídas y procesadas.
 
     Raises:
-        ValueError: Si faltan parámetros obligatorios.
+        ValueError: Si falta el parámetro 'file_path' en config o si ocurre un error al abrir el archivo.
     """
-    import os
-    import sys
-    import importlib
-    import inspect
-    import datetime
-    from zoneinfo import ZoneInfo
-    import tempfile
-    import requests
+    # Validación inicial de parámetros
+    file_path_str = config.get('file_path')
+    if not file_path_str:
+        raise ValueError("[VALIDATION [ERROR ❌]] Falta 'file_path' en config.")
 
-    # ────────────────────────────── Subfunciones Auxiliares ──────────────────────────────
-    def _imprimir_encabezado(mensaje: str) -> None:
-        print(f"\n🔹🔹🔹 {mensaje} 🔹🔹🔹\n", flush=True)
+    print("🔹🔹🔹 [START ▶️] Proceso de lectura y procesamiento de archivo 🔹🔹🔹", flush=True)
 
-    def _download_module_from_github(module_path: str) -> str:
-        if "github.com" in module_path:
-            raw_url = module_path.replace("github.com", "raw.githubusercontent.com").replace("/blob", "")
-        else:
-            raw_url = module_path
-        try:
-            print(f"[EXTRACTION [START ▶️]] Descargando módulo desde GitHub: {raw_url}", flush=True)
-            response = requests.get(raw_url)
-            if response.status_code != 200:
-                error_details = response.text[:200].strip()
-                print(f"[EXTRACTION [ERROR ❌]] No se pudo descargar el archivo desde {raw_url}. Código de estado: {response.status_code}. Detalles: {error_details}", flush=True)
-                return ""
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".py")
-            temp_file.write(response.content)
-            temp_file.close()
-            print(f"[EXTRACTION [SUCCESS ✅]] Archivo descargado y guardado en: {temp_file.name}", flush=True)
-            return temp_file.name
-        except Exception as e:
-            print(f"[EXTRACTION [ERROR ❌]] Error al descargar el archivo desde GitHub: {e}", flush=True)
-            return ""
+    # Intentar leer el archivo
+    try:
+        with open(file_path_str, 'r', encoding='utf-8') as file:
+            lines_list = file.readlines()
+        print(f"[FILE READ SUCCESS ✅] Archivo '{file_path_str}' leído correctamente. Total líneas: {len(lines_list)}", flush=True)
+    except Exception as e:
+        raise ValueError(f"[FILE PROCESS ERROR ❌] No se pudo abrir el archivo: {e}")
 
-    def _get_defined_objects(module, selected_functions_list: list) -> dict:
-        all_objects = inspect.getmembers(module, lambda obj: inspect.isfunction(obj) or inspect.isclass(obj))
-        defined_objects = {name: obj for name, obj in all_objects if getattr(obj, "__module__", "") == module.__name__}
-        if selected_functions_list:
-            return {name: obj for name, obj in defined_objects.items() if name in selected_functions_list}
-        return defined_objects
+    # Función auxiliar interna para limpiar cada línea
+    def _clean_line_str(line: str) -> str:
+        """
+        Limpia una línea eliminando espacios en blanco y saltos de línea.
+        """
+        return line.strip()
 
-    def _get_module_mod_date(module_path: str) -> datetime.datetime:
-        mod_timestamp = os.path.getmtime(module_path)
-        mod_date = datetime.datetime.fromtimestamp(mod_timestamp, tz=ZoneInfo("Europe/Madrid"))
-        return mod_date
+    # Procesamiento de cada línea del archivo
+    processed_lines_list = []
+    total_lines_int = len(lines_list)
+    for idx, line in enumerate(lines_list):
+        cleaned_line_str = _clean_line_str(line)
+        if cleaned_line_str:  # Solo considerar líneas no vacías
+            processed_lines_list.append(cleaned_line_str)
+        # Informar progreso cada 10% o cada cierto número de líneas
+        if total_lines_int > 0 and (idx + 1) % max(1, total_lines_int // 10) == 0:
+            progreso_int = int(((idx + 1) / total_lines_int) * 100)
+            print(f"[PROCESSING 🔄] Progreso: {progreso_int}% completado", flush=True)
 
-    def _import_module(module_path: str):
-        module_dir, module_file = os.path.split(module_path)
-        module_name, _ = os.path.splitext(module_file)
-        if module_dir not in sys.path:
-            sys.path.insert(0, module_dir)
-            print(f"[TRANSFORMATION [INFO ℹ️]] Directorio agregado al sys.path: {module_dir}", flush=True)
-        if module_name in sys.modules:
-            del sys.modules[module_name]
-            print(f"[TRANSFORMATION [INFO ℹ️]] Eliminada versión previa del módulo: {module_name}", flush=True)
-        try:
-            print(f"[LOAD [START ▶️]] Importando módulo: {module_name}", flush=True)
-            module = importlib.import_module(module_name)
-            module = importlib.reload(module)
-            print(f"[LOAD [SUCCESS ✅]] Módulo '{module_name}' importado correctamente.", flush=True)
-            return module, module_name
-        except Exception as e:
-            print(f"[LOAD [ERROR ❌]] Error al importar el módulo '{module_name}': {e}", flush=True)
-            return None, module_name
+    # Aplicar transformación opcional: conversión a mayúsculas
+    if config.get("uppercase", False):
+        processed_lines_list = [line.upper() for line in processed_lines_list]
+        print("[PROCESSING INFO ℹ️] Conversión a mayúsculas aplicada a las líneas procesadas.", flush=True)
 
-    def _print_module_report(module_name: str, module_path: str, mod_date: datetime.datetime, selected_objects: dict) -> None:
-        print("\n[METRICS [INFO ℹ️]] Informe de carga del módulo:", flush=True)
-        print(f"  - Módulo: {module_name}", flush=True)
-        print(f"  - Ruta: {module_path}", flush=True)
-        print(f"  - Fecha de última modificación: {mod_date}", flush=True)
-        if not selected_objects:
-            print("  - [WARNING ⚠️] No se encontraron objetos para importar.", flush=True)
-        else:
-            print("  - Objetos importados:", flush=True)
-            for name, obj in selected_objects.items():
-                obj_type = type(obj).__name__
-                doc = inspect.getdoc(obj) or "Sin documentación"
-                first_line = doc.split("\n")[0]
-                print(f"      • {name} ({obj_type}): {first_line}", flush=True)
-        print(f"\n[END [FINISHED ✅]] Módulo '{module_name}' actualizado e importado en globals().\n", flush=True)
+    # Generar resumen del procesamiento
+    summary_str = (
+        f"Resumen del archivo:\n"
+        f"- Ruta: {file_path_str}\n"
+        f"- Total líneas leídas: {total_lines_int}\n"
+        f"- Líneas procesadas (no vacías): {len(processed_lines_list)}\n"
+    )
 
-    # ────────────────────────────── Proceso Principal ──────────────────────────────
-    _imprimir_encabezado("[START ▶️] Iniciando carga de módulos personalizados")
-    for config in config_list:
-        module_host = config.get("module_host")
-        module_path = config.get("module_path")
-        selected_functions_list = config.get("selected_functions_list", [])
+    print("🔹🔹🔹 [FILE PROCESS FINISHED ✅] Procesamiento completado. 🔹🔹🔹", flush=True)
+    return summary_str
 
-        if module_host == "github":
-            temp_module_path = _download_module_from_github(module_path)
-            if not temp_module_path:
-                continue
-            module_path = temp_module_path
-
-        if not os.path.exists(module_path):
-            print(f"[VALIDATION [ERROR ❌]] La ruta del módulo no existe: {module_path}", flush=True)
-            continue
-
-        importlib.invalidate_caches()
-        mod_date = _get_module_mod_date(module_path)
-        module, module_name = _import_module(module_path)
-        if module is None:
-            continue
-
-        selected_objects = _get_defined_objects(module, selected_functions_list)
-        globals().update(selected_objects)
-        _print_module_report(module_name, module_path, mod_date, selected_objects)
 ```
