@@ -192,7 +192,7 @@ def files_path_collect_df(config: dict) -> "pd.DataFrame":
             "file_path",
             "file_creation_date",
             "file_last_modified_date",
-            "file_scrap_date",https://github.com/DavidP0011/utils/tree/main
+            "file_scrap_date",
             "file_size_mb",
             "duration_hms",
             "duration_ms",
