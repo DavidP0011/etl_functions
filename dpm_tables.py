@@ -296,7 +296,6 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
                 "https://www.googleapis.com/auth/spreadsheets",
                 "https://www.googleapis.com/auth/drive"
             ]
-            # Utilizar la nueva key para determinar el entorno
             ini_env = params.get("ini_environment_identificated")
             if not ini_env:
                 raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en params.")
@@ -326,7 +325,7 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
                 secret_string = response.payload.data.decode("UTF-8")
                 secret_info = json.loads(secret_string)
                 creds = Credentials.from_service_account_info(secret_info, scopes=scope_list)
-    
+
             service = build('sheets', 'v4', credentials=creds)
             range_name = f"{worksheet_name}"
             print("[EXTRACTION [START ⏳]] Extrayendo datos de Google Sheets...", flush=True)
@@ -335,12 +334,27 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
             if not data:
                 print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la hoja especificada.", flush=True)
                 return pd.DataFrame()
-            df = pd.DataFrame(data[1:], columns=data[0])
+            
+            # Se obtiene el encabezado y se ajustan las filas para que todas tengan la misma longitud.
+            header = data[0]
+            n_columns = len(header)
+            data_fixed = []
+            for row in data[1:]:
+                if len(row) < n_columns:
+                    # Se rellenan las filas con menos columnas con None.
+                    row = row + [None] * (n_columns - len(row))
+                elif len(row) > n_columns:
+                    # Se truncan las filas que tienen más columnas de las necesarias.
+                    row = row[:n_columns]
+                data_fixed.append(row)
+
+            df = pd.DataFrame(data_fixed, columns=header)
             print(f"[EXTRACTION [SUCCESS ✅]] Datos extraídos con éxito de la hoja '{worksheet_name}'.", flush=True)
             return df
-    
+
         except Exception as e:
             raise ValueError(f"[EXTRACTION [ERROR ❌]] Error al extraer datos de Google Sheets: {e}")
+
 
     # ────────────────────────────── Fuente – BigQuery ──────────────────────────────
     def _leer_gbq(params: dict) -> pd.DataFrame:
