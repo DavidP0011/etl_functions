@@ -665,7 +665,7 @@ def LLM_process_text(params: dict) -> None:
 
         try:
             sheet.append_row(row_final, value_input_option="USER_ENTERED")
-            print(f" [SUCCESS ▶️] Fila {row_index} escrita en Google Sheets.", flush=True)
+            print(f" [SUCCESS ✅] Fila {row_index} escrita en Google Sheets.", flush=True)
         except Exception as e:
             print(f" [ERROR ❌] Error al escribir la fila {row_index}: {e}", flush=True)
         return (True, duration, usage_info)
