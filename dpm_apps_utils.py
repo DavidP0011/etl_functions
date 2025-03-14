@@ -607,10 +607,10 @@ def LLM_process_text(params: dict) -> None:
         field = params["source_table_field_name"]
         content = row_data.get(field, "").strip()
         if not content:
-            print(f"\n🔹🔹🔹 [SKIP ▶️] Fila {row_index} sin contenido. Se omite.", flush=True)
+            print(f"\n🔹🔹🔹 [SKIP ▶️] Fila {row_index} sin contenido. Se omite. 🔹🔹🔹", flush=True)
             return (False, 0.0, {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
 
-        print(f"\n🔹🔹🔹 [START ▶️] Procesando fila {row_index}. Longitud contenido: {len(content)}", flush=True)
+        print(f"\n🔹🔹🔹 [START ▶️] Procesando fila {row_index}. Longitud contenido: {len(content)} 🔹🔹🔹", flush=True)
         t_start = time.time()
         result = chain.generate([{"content": content}])
         duration = round(time.time() - t_start, 2)
@@ -665,9 +665,9 @@ def LLM_process_text(params: dict) -> None:
 
         try:
             sheet.append_row(row_final, value_input_option="USER_ENTERED")
-            print(f"🔹🔹🔹 [SUCCESS ▶️] Fila {row_index} escrita en Google Sheets.", flush=True)
+            print(f" [SUCCESS ▶️] Fila {row_index} escrita en Google Sheets.", flush=True)
         except Exception as e:
-            print(f"🔹🔹🔹 [ERROR ❌] Error al escribir la fila {row_index}: {e}", flush=True)
+            print(f" [ERROR ❌] Error al escribir la fila {row_index}: {e}", flush=True)
         return (True, duration, usage_info)
 
     # PROCESAR TODAS LAS FILAS Y ACUMULAR ESTADÍSTICAS Y TOKEN USAGE
@@ -690,7 +690,7 @@ def LLM_process_text(params: dict) -> None:
         total_completion_tokens = 0
         total_all_tokens = 0
 
-        print(f"\n🔹🔹🔹 [RANGE INFO ℹ️] Total de filas a procesar: {total_rows}", flush=True)
+        print(f"\n [RANGE INFO ℹ️] Total de filas a procesar: {total_rows}", flush=True)
         for i, row in enumerate(data_list, start=1):
             if i > 1 and params.get("system_prompt_second_and_later"):
                 new_prompt_text = params["system_prompt_second_and_later"]
@@ -712,7 +712,7 @@ def LLM_process_text(params: dict) -> None:
         avg_completion = total_completion_tokens / processed_count if processed_count else 0
         avg_total = total_all_tokens / processed_count if processed_count else 0
 
-        print("\n🔹🔹🔹 [FINISHED ✅] Resumen de procesamiento:", flush=True)
+        print("\n🔹🔹🔹 [FINISHED ✅] Resumen de procesamiento: 🔹🔹🔹", flush=True)
         print(f"  - Filas totales: {total_rows}", flush=True)
         print(f"  - Filas procesadas: {processed_count}", flush=True)
         print(f"  - Filas omitidas: {skipped_count}", flush=True)
@@ -727,7 +727,7 @@ def LLM_process_text(params: dict) -> None:
         print(f"  - total_tokens promedio: {round(avg_total, 2)}", flush=True)
         print("\n🔹🔹🔹 [FINISHED ✅] Proceso completado.", flush=True)
 
-    print("🔹🔹🔹 [START ▶️] Iniciando LLM_process_text", flush=True)
+    print("🔹🔹🔹 [START ▶️] Iniciando LLM_process_text 🔹🔹🔹","\n", flush=True)
     try:
         _validate_params()
         print("[VALIDATION SUCCESS ✅] Todos los parámetros han sido validados.", flush=True)
