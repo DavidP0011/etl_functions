@@ -152,76 +152,102 @@ def DF_to_GBQ(params: dict) -> None:
 # ----------------------------------------------------------------------------
 # GBQ_execute_SQL()
 # ----------------------------------------------------------------------------
-def GBQ_execute_SQL(params: dict) -> None:
+def gbq_execute_sql(config: dict) -> None:
     """
     Ejecuta un script SQL en Google BigQuery y muestra un resumen detallado con estadísticas del proceso.
-    
-    Parámetros en params:
-      - GCP_project_id (str): ID del proyecto de GCP.
-      - SQL_script (str): Script SQL a ejecutar.
-      - json_keyfile_GCP_secret_id (str, opcional): Secret ID para obtener credenciales desde Secret Manager (en GCP).
-      - json_keyfile_colab (str, opcional): Ruta del archivo JSON de credenciales (en entornos no GCP).
-      - destination_table (str, opcional): Tabla destino para obtener estadísticas adicionales.
+
+    Args:
+        config (dict):
+            - GCP_project_id (str): ID del proyecto de GCP.
+            - SQL_script (str): Script SQL a ejecutar.
+            - json_keyfile_GCP_secret_id (str, opcional): Secret ID para obtener credenciales desde Secret Manager (en entornos GCP).
+            - json_keyfile_colab (str, opcional): Ruta del archivo JSON de credenciales (en entornos no GCP).
+            - destination_table (str, opcional): Tabla destino para obtener estadísticas adicionales.
+
+    Returns:
+        None
+
+    Raises:
+        ValueError: Si faltan parámetros obligatorios o ocurre un error durante la autenticación o ejecución del script.
     """
-    print("[START ▶️] Iniciando ejecución de script SQL en BigQuery...", flush=True)
-    import os, time, re, json
-    from google.cloud import bigquery, secretmanager
-    from google.oauth2 import service_account
+    import os, time, json
+    from google.cloud import bigquery, service_account
 
-    def _validar_parametros(params: dict) -> (str, str, str):
-        project_id = params.get('GCP_project_id')
-        sql_script = params.get('SQL_script')
-        if not project_id or not sql_script:
-            raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'GCP_project_id' o 'SQL_script'.")
-        destination_table = params.get('destination_table')
-        return project_id, sql_script, destination_table
+    def _validar_parametros(config: dict) -> (str, str, str):
+        """
+        Valida que los parámetros obligatorios existan en config.
+        """
+        project_id_str = config.get('GCP_project_id')
+        sql_script_str = config.get('SQL_script')
+        if not project_id_str or not sql_script_str:
+            raise ValueError("[VALIDATION [ERROR ❌]] Falta 'GCP_project_id' o 'SQL_script' en config.")
+        destination_table_str = config.get('destination_table')
+        return project_id_str, sql_script_str, destination_table_str
 
-    def _autenticar(project_id: str):
+    def _autenticar(project_id_str: str):
+        """
+        Autentica usando Secret Manager en entornos GCP o desde un archivo JSON en entornos locales/Colab.
+        """
         if os.environ.get("GOOGLE_CLOUD_PROJECT"):
-            secret_id = params.get("json_keyfile_GCP_secret_id")
-            if not secret_id:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-            print("[AUTHENTICATION [INFO] ℹ️] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
+            from google.cloud import secretmanager
+            secret_id_str = config.get("json_keyfile_GCP_secret_id")
+            if not secret_id_str:
+                raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
+            print("🔹🔹🔹 [AUTHENTICATION START ▶️] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
             client_sm = secretmanager.SecretManagerServiceClient()
-            secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-            response = client_sm.access_secret_version(name=secret_name)
-            secret_string = response.payload.data.decode("UTF-8")
-            secret_info = json.loads(secret_string)
-            creds = service_account.Credentials.from_service_account_info(secret_info)
-            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas desde Secret Manager.", flush=True)
+            secret_name_str = f"projects/{project_id_str}/secrets/{secret_id_str}/versions/latest"
+            response = client_sm.access_secret_version(name=secret_name_str)
+            secret_string_str = response.payload.data.decode("UTF-8")
+            secret_info_dic = json.loads(secret_string_str)
+            from google.oauth2 import service_account
+            creds = service_account.Credentials.from_service_account_info(secret_info_dic)
+            print("🔹🔹🔹 [AUTHENTICATION SUCCESS ✅] Credenciales obtenidas desde Secret Manager.", flush=True)
         else:
-            json_path = params.get("json_keyfile_colab")
-            if not json_path:
+            json_path_str = config.get("json_keyfile_colab")
+            if not json_path_str:
                 raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
-            print("[AUTHENTICATION [INFO] ℹ️] Entorno local/Colab detectado. Usando credenciales desde archivo JSON...", flush=True)
-            creds = service_account.Credentials.from_service_account_file(json_path)
-            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
+            print("🔹🔹🔹 [AUTHENTICATION START ▶️] Entorno local/Colab detectado. Usando credenciales desde archivo JSON...", flush=True)
+            from google.oauth2 import service_account
+            creds = service_account.Credentials.from_service_account_file(json_path_str)
+            print("🔹🔹🔹 [AUTHENTICATION SUCCESS ✅] Credenciales cargadas desde archivo JSON.", flush=True)
         return creds
 
-    def _inicializar_cliente(project_id: str, creds) -> bigquery.Client:
-        print("[LOAD [START ▶️]] Iniciando cliente de BigQuery...", flush=True)
-        client = bigquery.Client(project=project_id, credentials=creds)
-        print(f"[LOAD [SUCCESS ✅]] Cliente inicializado para el proyecto: {project_id}\n", flush=True)
+    def _inicializar_cliente(project_id_str: str, creds) -> bigquery.Client:
+        """
+        Inicializa el cliente de BigQuery.
+        """
+        print("🔹🔹🔹 [LOAD START ▶️] Inicializando cliente de BigQuery...", flush=True)
+        client = bigquery.Client(project=project_id_str, credentials=creds)
+        print(f"🔹🔹🔹 [LOAD SUCCESS ✅] Cliente inicializado para el proyecto: {project_id_str}", flush=True)
         return client
 
-    def _mostrar_resumen_script(sql_script: str) -> None:
-        action = sql_script.strip().split()[0]
-        print(f"[EXTRACTION [INFO ℹ️]] Acción detectada en el script SQL: {action}", flush=True)
-        print("[EXTRACTION [INFO ℹ️]] Resumen del script (primeras 5 líneas):", flush=True)
-        for line in sql_script.strip().split('\n')[:5]:
+    def _mostrar_resumen_script(sql_script_str: str) -> None:
+        """
+        Muestra un resumen del script SQL a ejecutar.
+        """
+        action_str = sql_script_str.strip().split()[0]
+        print(f"🔹🔹🔹 [EXTRACTION INFO ℹ️] Acción detectada en el script SQL: {action_str}", flush=True)
+        print("🔹🔹🔹 [EXTRACTION INFO ℹ️] Resumen del script (primeras 5 líneas):", flush=True)
+        for line in sql_script_str.strip().split('\n')[:5]:
             print(line, flush=True)
         print("...", flush=True)
 
-    def _ejecutar_query(client: bigquery.Client, sql_script: str, start_time: float):
-        print("[TRANSFORMATION [START ▶️]] Ejecutando el script SQL...", flush=True)
-        query_job = client.query(sql_script)
+    def _ejecutar_query(client: bigquery.Client, sql_script_str: str, start_time_float: float):
+        """
+        Ejecuta el script SQL en BigQuery y mide el tiempo de ejecución.
+        """
+        print("🔹🔹🔹 [TRANSFORMATION START ▶️] Ejecutando el script SQL...", flush=True)
+        query_job = client.query(sql_script_str)
         query_job.result()  # Espera a que se complete la consulta
-        elapsed_time = time.time() - start_time
-        print("[TRANSFORMATION [SUCCESS ✅]] Consulta SQL ejecutada exitosamente.\n", flush=True)
-        return query_job, elapsed_time
+        elapsed_time_float = time.time() - start_time_float
+        print("🔹🔹🔹 [TRANSFORMATION SUCCESS ✅] Consulta SQL ejecutada exitosamente.", flush=True)
+        return query_job, elapsed_time_float
 
-    def _mostrar_detalles_trabajo(client: bigquery.Client, query_job, elapsed_time: float, destination_table: str) -> None:
-        print("[METRICS [INFO ℹ️]] Detalles del trabajo de BigQuery:", flush=True)
+    def _mostrar_detalles_trabajo(client: bigquery.Client, query_job, elapsed_time_float: float, destination_table_str: str) -> None:
+        """
+        Muestra los detalles y métricas del trabajo ejecutado en BigQuery.
+        """
+        print("🔹🔹🔹 [METRICS INFO ℹ️] Detalles del trabajo de BigQuery:", flush=True)
         print(f"  - ID del job: {query_job.job_id}", flush=True)
         print(f"  - Estado: {query_job.state}", flush=True)
         print(f"  - Tiempo de creación: {query_job.created}", flush=True)
@@ -229,30 +255,41 @@ def GBQ_execute_SQL(params: dict) -> None:
             print(f"  - Tiempo de inicio: {query_job.started}", flush=True)
         if hasattr(query_job, 'ended'):
             print(f"  - Tiempo de finalización: {query_job.ended}", flush=True)
-        print(f"  - Bytes procesados: {query_job.total_bytes_processed if query_job.total_bytes_processed is not None else 'N/A'}", flush=True)
-        print(f"  - Bytes facturados: {query_job.total_bytes_billed if query_job.total_bytes_billed is not None else 'N/A'}", flush=True)
+        total_bytes_processed = query_job.total_bytes_processed if query_job.total_bytes_processed is not None else 'N/A'
+        total_bytes_billed = query_job.total_bytes_billed if query_job.total_bytes_billed is not None else 'N/A'
+        print(f"  - Bytes procesados: {total_bytes_processed}", flush=True)
+        print(f"  - Bytes facturados: {total_bytes_billed}", flush=True)
         print(f"  - Cache hit: {query_job.cache_hit}", flush=True)
-        if destination_table:
+        if destination_table_str:
             try:
-                count_query = f"SELECT COUNT(*) AS total_rows FROM `{destination_table}`"
-                count_result = client.query(count_query).result()
-                rows_in_table = [row['total_rows'] for row in count_result][0]
-                print(f"  - Filas en la tabla destino: {rows_in_table}", flush=True)
+                count_query_str = f"SELECT COUNT(*) AS total_rows FROM `{destination_table_str}`"
+                count_result = client.query(count_query_str).result()
+                rows_in_table_int = [row['total_rows'] for row in count_result][0]
+                print(f"  - Filas en la tabla destino: {rows_in_table_int}", flush=True)
             except Exception as e:
-                print(f"[METRICS [WARNING ⚠️]] No se pudo obtener información de la tabla destino: {e}", flush=True)
-        print(f"[END [FINISHED ✅]] Tiempo total de ejecución: {elapsed_time:.2f} segundos\n", flush=True)
+                print(f"🔹🔹🔹 [METRICS WARNING ⚠️] No se pudo obtener información de la tabla destino: {e}", flush=True)
+        print(f"🔹🔹🔹 [END FINISHED ✅] Tiempo total de ejecución: {elapsed_time_float:.2f} segundos", flush=True)
 
-    project_id, sql_script, destination_table = _validar_parametros(params)
-    creds = _autenticar(project_id)
-    client = _inicializar_cliente(project_id, creds)
-    _mostrar_resumen_script(sql_script)
-    start_time = time.time()
+    # Validación de parámetros
+    project_id_str, sql_script_str, destination_table_str = _validar_parametros(config)
+
+    # Autenticación y carga de credenciales
+    creds = _autenticar(project_id_str)
+
+    # Inicialización del cliente de BigQuery
+    client = _inicializar_cliente(project_id_str, creds)
+
+    # Mostrar resumen del script SQL
+    _mostrar_resumen_script(sql_script_str)
+
+    start_time_float = time.time()
     try:
-        query_job, elapsed_time = _ejecutar_query(client, sql_script, start_time)
-        _mostrar_detalles_trabajo(client, query_job, elapsed_time, destination_table)
+        query_job, elapsed_time_float = _ejecutar_query(client, sql_script_str, start_time_float)
+        _mostrar_detalles_trabajo(client, query_job, elapsed_time_float, destination_table_str)
     except Exception as e:
-        print(f"[TRANSFORMATION [ERROR ❌]] Ocurrió un error al ejecutar el script SQL: {str(e)}\n", flush=True)
+        print(f"🔹🔹🔹 [TRANSFORMATION ERROR ❌] Ocurrió un error al ejecutar el script SQL: {str(e)}", flush=True)
         raise
+
 
 
 
