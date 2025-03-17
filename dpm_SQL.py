@@ -10,60 +10,6 @@ import time
 import os
 from google.oauth2 import service_account
 
-# Función auxiliar común para autenticación según el diccionario de configuración.
-def _authenticate_api(config: dict, project_id: str):
-    """
-    Autentica utilizando el diccionario común en config.
-    
-    Dependiendo de 'ini_environment_identificated' se utiliza:
-      - "LOCAL": usa la key "json_keyfile_local"
-      - "COLAB": usa la key "json_keyfile_colab"
-      - Para GCP (por ejemplo, "COLAB_ENTERPRISE" o un project_id): usa "json_keyfile_GCP_secret_id"
-      
-    Args:
-      config (dict): Diccionario de configuración.
-      project_id (str): ID del proyecto GCP (se usa en la autenticación GCP).
-      
-    Returns:
-      Credentials: Objeto de credenciales para la autenticación.
-    """
-    env = config.get("ini_environment_identificated", "COLAB")
-    if env == "LOCAL":
-        json_path = config.get("json_keyfile_local")
-        if not json_path:
-            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_local' en config para entorno LOCAL.")
-        credentials = service_account.Credentials.from_service_account_file(json_path)
-    elif env == "COLAB":
-        json_path = config.get("json_keyfile_colab")
-        if not json_path:
-            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_colab' en config para entorno COLAB.")
-        credentials = service_account.Credentials.from_service_account_file(json_path)
-    else:
-        # Asumimos que para GCP (COLAB_ENTERPRISE o si se pasa un project_id distinto) se usa Secret Manager.
-        secret_id = config.get("json_keyfile_GCP_secret_id")
-        if not secret_id:
-            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_GCP_secret_id' en config para entornos GCP.")
-        from google.cloud import secretmanager
-        client_sm = secretmanager.SecretManagerServiceClient()
-        secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-        response = client_sm.access_secret_version(name=secret_name)
-        secret_str = response.payload.data.decode("UTF-8")
-        import json
-        secret_info = json.loads(secret_str)
-        credentials = service_account.Credentials.from_service_account_info(secret_info)
-    return credentials
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # __________________________________________________________________________________________________________________________________________________________
@@ -95,7 +41,7 @@ def GBQ_execute_SQL(config: dict) -> None:
         return project_id, sql_script, destination_table
 
     proj_id, sql_script, dest_table = _validate_parameters(config)
-    creds = _authenticate_api(config, proj_id)
+    creds = _ini_authenticate_API(config, proj_id)
     client = bigquery.Client(project=proj_id, credentials=creds)
 
     def _show_script_summary(sql_script: str) -> None:
@@ -540,7 +486,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     # Autenticación
     print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
     project = table_source.split(".")[0]
-    creds = _authenticate_api(config, project)
+    creds = _ini_authenticate_API(config, project)
     client = bigquery.Client(project=project, credentials=creds)
     
     # Extracción de datos de contactos
@@ -768,7 +714,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     def translate_batch_custom(words, prefix="El país llamado ", separator="|||", max_length=4000) -> dict:
         from google.cloud import translate_v3 as translate
         project_id = config.get("GCP_project_id")
-        creds = _authenticate_api(config, project_id)
+        creds = _ini_authenticate_API(config, project_id)
         translator_client = translate.TranslationServiceClient(credentials=creds)
         location = "global"
         parent = f"projects/{project_id}/locations/{location}"
@@ -888,7 +834,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
 
     # Autenticación y creación del cliente
     source_project = source_table.split(".")[0]
-    creds = _authenticate_api(config, source_project)
+    creds = _ini_authenticate_API(config, source_project)
     client = bigquery.Client(project=source_project, credentials=creds)
     
     print(f"[EXTRACTION [START ▶️]] Extrayendo datos de {source_table}...", flush=True)
@@ -1277,7 +1223,7 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
 
     def _get_client():
         source_project = source_table.split(".")[0]
-        return bigquery.Client(project=source_project, credentials=_authenticate_api(config, source_project))
+        return bigquery.Client(project=source_project, credentials=_ini_authenticate_API(config, source_project))
 
     client = _get_client()
     df_source = _extract_source_values(source_table, source_field, client)
@@ -1435,7 +1381,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
 
     print(f"[EXTRACTION START ▶️] Extrayendo valores únicos de `{source_field}` desde {source_table}...", flush=True)
     source_project = source_table.split(".")[0]
-    client = bigquery.Client(project=source_project, credentials=_authenticate_api(config, source_project))
+    client = bigquery.Client(project=source_project, credentials=_ini_authenticate_API(config, source_project))
     df_source = _extract_source_values(source_table, source_field, client)
     if df_source.empty:
         print("[EXTRACTION WARNING ⚠️] No se encontraron valores en la columna fuente.", flush=True)
