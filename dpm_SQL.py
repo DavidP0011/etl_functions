@@ -1690,17 +1690,18 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
       - json_keyfile_GCP_secret_id (str, opcional): Secret ID para GCP.
       - json_keyfile_colab (str, opcional): Ruta al archivo JSON para entornos no GCP.
       - destination_field_name (str, opcional)
+    
     Retorna:
         tuple: (sql_script, df_fuzzy_results)
     """
     import os, json, unicodedata, re
     import pandas as pd
-    from google.cloud import bigquery, secretmanager
+    from google.cloud import bigquery  # Importar secretmanager solo en autenticación
     from google.oauth2 import service_account
     import pandas_gbq
     from rapidfuzz import process, fuzz  # Asegúrate de tener rapidfuzz instalado
 
-    print("[START ▶️] Iniciando normalización de cadenas...", flush=True)
+    print("[NORMALIZATION START ▶️] Iniciando normalización de cadenas...", flush=True)
     source_table = config.get("source_table_to_normalize")
     source_field = config.get("source_table_to_normalize_field_name")
     manual_df = config.get("referece_table_for_normalization_manual_df")
@@ -1710,6 +1711,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
     rapidfuzz_min_score = config.get("rapidfuzz_score_filter_min_value", 0)
     rapidfuzz_no_pass_value = config.get("rapidfuzz_score_filter_no_pass_mapping", "descartado")
     destination_field_name = config.get("destination_field_name", "").strip()
+    
     if not (isinstance(source_table, str) and source_table):
         raise ValueError("[VALIDATION [ERROR ❌]] 'source_table_to_normalize' es obligatorio.")
     if not (isinstance(source_field, str) and source_field):
@@ -1722,6 +1724,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
         raise ValueError("[VALIDATION [ERROR ❌]] 'referece_table_for_normalization_rapidfuzz_field_name' es obligatorio.")
     
     def _normalize_text(texto: str) -> str:
+        """ Normaliza el texto: minúsculas, sin acentos y sin caracteres especiales """
         texto = texto.lower().strip()
         texto = unicodedata.normalize('NFD', texto)
         texto = ''.join(c for c in texto if unicodedata.category(c) != 'Mn')
@@ -1764,50 +1767,50 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
             normalized_raw = _normalize_text(raw)
             if normalized_raw in manual_mapping:
                 mapping_results[raw] = manual_mapping[normalized_raw]
-                print(f"[TRANSFORMATION [SUCCESS ✅]] [MANUAL] '{raw}' mapeado a: {manual_mapping[normalized_raw]}", flush=True)
+                print(f"[TRANSFORMATION SUCCESS ✅] [MANUAL] '{raw}' mapeado a: {manual_mapping[normalized_raw]}", flush=True)
             else:
                 best_match = process.extractOne(normalized_raw, candidate_keys, scorer=fuzz.ratio)
                 if best_match:
                     match_key, score, _ = best_match
                     if rapidfuzz_filter_use and score < rapidfuzz_min_score:
                         mapping_results[raw] = rapidfuzz_no_pass_value
-                        fuzzy_results_list.append({source_field: raw, "Nombre programa formativo": rapidfuzz_no_pass_value, "Rapidfuzz score": score})
-                        print(f"[TRANSFORMATION [WARNING ⚠️]] [FUZY] '{raw}' obtuvo score {score} (< {rapidfuzz_min_score}). Se asigna: {rapidfuzz_no_pass_value}", flush=True)
+                        fuzzy_results_list.append({source_field: raw, "normalized_value": rapidfuzz_no_pass_value, "Rapidfuzz score": score})
+                        print(f"[TRANSFORMATION WARNING ⚠️] [FUZZY] '{raw}' obtuvo score {score} (< {rapidfuzz_min_score}). Se asigna: {rapidfuzz_no_pass_value}", flush=True)
                     else:
                         mapping_results[raw] = rapidfuzz_candidates[match_key]
-                        fuzzy_results_list.append({source_field: raw, "Nombre programa formativo": rapidfuzz_candidates[match_key], "Rapidfuzz score": score})
-                        print(f"[TRANSFORMATION [SUCCESS ✅]] [FUZY] '{raw}' mapeado a: {rapidfuzz_candidates[match_key]} (Score: {score})", flush=True)
+                        fuzzy_results_list.append({source_field: raw, "normalized_value": rapidfuzz_candidates[match_key], "Rapidfuzz score": score})
+                        print(f"[TRANSFORMATION SUCCESS ✅] [FUZZY] '{raw}' mapeado a: {rapidfuzz_candidates[match_key]} (Score: {score})", flush=True)
                 else:
                     mapping_results[raw] = rapidfuzz_no_pass_value
-                    fuzzy_results_list.append({source_field: raw, "Nombre programa formativo": rapidfuzz_no_pass_value, "Rapidfuzz score": None})
-                    print(f"[TRANSFORMATION [ERROR ❌]] No se encontró mapeo para '{raw}'. Se asigna: {rapidfuzz_no_pass_value}", flush=True)
+                    fuzzy_results_list.append({source_field: raw, "normalized_value": rapidfuzz_no_pass_value, "Rapidfuzz score": None})
+                    print(f"[TRANSFORMATION ERROR ❌] No se encontró mapeo para '{raw}'. Se asigna: {rapidfuzz_no_pass_value}", flush=True)
         return mapping_results, fuzzy_results_list
 
-    print(f"[EXTRACTION [START ▶️]] Extrayendo valores únicos de `{source_field}` desde {source_table}...", flush=True)
+    print(f"[EXTRACTION START ▶️] Extrayendo valores únicos de `{source_field}` desde {source_table}...", flush=True)
     source_project = source_table.split(".")[0]
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
         secret_id = config.get("json_keyfile_GCP_secret_id")
         if not secret_id:
-            raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
+            raise ValueError("[AUTHENTICATION ERROR ❌] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
         from google.cloud import secretmanager
         client_sm = secretmanager.SecretManagerServiceClient()
         secret_name = f"projects/{source_project}/secrets/{secret_id}/versions/latest"
         response = client_sm.access_secret_version(name=secret_name)
         secret_string = response.payload.data.decode("UTF-8")
         creds = service_account.Credentials.from_service_account_info(json.loads(secret_string))
-        print("[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas desde Secret Manager.", flush=True)
+        print("[AUTHENTICATION SUCCESS ✅] Credenciales obtenidas desde Secret Manager.", flush=True)
     else:
         json_path = config.get("json_keyfile_colab")
         if not json_path:
-            raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
+            raise ValueError("[AUTHENTICATION ERROR ❌] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
         creds = service_account.Credentials.from_service_account_file(json_path)
-        print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
+        print("[AUTHENTICATION SUCCESS ✅] Credenciales cargadas desde archivo JSON.", flush=True)
     client = bigquery.Client(project=source_project, credentials=creds)
     df_source = _extract_source_values(source_table, source_field, client)
     if df_source.empty:
-        print("[EXTRACTION [WARNING ⚠️]] No se encontraron valores en la columna fuente.", flush=True)
+        print("[EXTRACTION WARNING ⚠️] No se encontraron valores en la columna fuente.", flush=True)
         return ("", pd.DataFrame())
-    print(f"[EXTRACTION [SUCCESS ✅]] Se encontraron {len(df_source)} valores únicos.", flush=True)
+    print(f"[EXTRACTION SUCCESS ✅] Se encontraron {len(df_source)} valores únicos.", flush=True)
     
     manual_mapping = _build_manual_mapping(manual_df)
     rapidfuzz_candidates = _build_rapidfuzz_candidates(rapidfuzz_df, rapidfuzz_field)
@@ -1816,11 +1819,11 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
     mapping_df = pd.DataFrame(list(mapping_results.items()), columns=["raw_value", "normalized_value"])
     from_parts = source_table.split(".")
     if len(from_parts) != 3:
-        raise ValueError("[VALIDATION [ERROR ❌]] 'source_table_to_normalize' debe ser 'proyecto.dataset.tabla'.")
+        raise ValueError("[VALIDATION ERROR ❌] 'source_table_to_normalize' debe ser 'proyecto.dataset.tabla'.")
     dest_project, dest_dataset, _ = from_parts
     aux_table = f"{dest_project}.{dest_dataset}.temp_normalized_strings"
     
-    print(f"[LOAD [START ▶️]] Subiendo tabla auxiliar {aux_table} con el mapeo...", flush=True)
+    print(f"[LOAD START ▶️] Subiendo tabla auxiliar {aux_table} con el mapeo...", flush=True)
     pandas_gbq.to_gbq(mapping_df,
                         destination_table=aux_table,
                         project_id=dest_project,
@@ -1845,6 +1848,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
         )
     drop_sql = f"DROP TABLE `{aux_table}`;"
     sql_script = update_sql + "\n" + drop_sql
-    print("[END [FINISHED ✅]] SQL para normalización generado.\n", flush=True)
+    print("[END FINISHED ✅] SQL para normalización generado.", flush=True)
     return sql_script, pd.DataFrame(fuzzy_results_list)
+
 
