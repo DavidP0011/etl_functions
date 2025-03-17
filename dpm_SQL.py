@@ -893,6 +893,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     Parámetros en config:
       - json_keyfile_GCP_secret_id (str): Secret ID para obtener credenciales en GCP.
       - json_keyfile_colab (str): Ruta al archivo JSON de credenciales para entornos no GCP.
+      - GCP_project_id (str): ID del proyecto en GCP (por ejemplo, "animum-dev-datawarehouse").
       - source_table (str): Tabla origen en formato `proyecto.dataset.tabla`.
       - source_country_name_best_list (list): Lista de campos de país en orden de prioridad.
       - source_id_name_field (str): Campo identificador en la tabla origen.
@@ -909,17 +910,18 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     Retorna:
         str: Una cadena de texto que contiene el script SQL completo (JOIN y DROP si corresponde) listo para ejecutarse.
     """
-    from google.cloud import bigquery, secretmanager
-    import pandas as pd
-    import pandas_gbq
-    from googletrans import Translator  # Versión 4.0.0-rc1
+    import os
+    import json
+    import time
+    import re
     import unicodedata
     import re
+    import pandas as pd
+    import pandas_gbq
+    from google.cloud import bigquery, secretmanager
+    from google.oauth2 import service_account
     import pycountry
     from rapidfuzz import process, fuzz
-    import time
-    import os, json
-    from google.oauth2 import service_account
 
     # --- Autenticación ---
     print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
@@ -981,16 +983,30 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
                 return row[field]
         return None
 
-    # --- Actualización en la lógica de traducción ---
+    # --- Actualización en la lógica de traducción usando la API v3 ---
     def translate_batch_custom(words, prefix="El país llamado ", separator="|||", max_length=4000) -> dict:
         """
-        Traduce una lista de palabras de español a inglés agrupándolas en chunks.
-        Implementa reintentos y, en caso de fallo en la traducción en bloque, hace un fallback
-        traduciendo cada palabra individualmente, siguiendo la lógica implementada en la función translate().
+        Traduce una lista de palabras de español a inglés agrupándolas en chunks utilizando la API de Google Cloud Translation v3.
+        Implementa reintentos y, en caso de fallo en la traducción en bloque, hace un fallback traduciendo cada palabra individualmente.
         """
-        translator = Translator()
+        from google.cloud import translate_v3 as translate
+
+        # Crear cliente de traducción usando la API v3 y las credenciales ya autenticadas
+        translator_client = translate.TranslationServiceClient(credentials=creds)
+        project_id = config.get("GCP_project_id", "animum-dev-datawarehouse")
+        location = "global"
+        parent = f"projects/{project_id}/locations/{location}"
+        
+        # Traducir el prefijo
         try:
-            english_prefix = translator.translate(prefix, src='es', dest='en').text.strip()
+            request_prefix = {
+                "parent": parent,
+                "contents": [prefix],
+                "mime_type": "text/plain",
+                "target_language_code": "en",
+            }
+            response_prefix = translator_client.translate_text(request=request_prefix)
+            english_prefix = response_prefix.translations[0].translated_text.strip() if response_prefix.translations else "The country called"
         except Exception as e:
             print(f"[TRANSLATION WARNING] Error al traducir el prefijo: {e}. Se usará un prefijo por defecto.", flush=True)
             english_prefix = "The country called"
@@ -1006,27 +1022,34 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
                 return
             attempts = 0
             translated_phrases = None
-            # Intento de traducción en bloque con reintentos
             while attempts < 3:
                 try:
-                    translated_objects = translator.translate(chunk_phrases, src='es', dest='en')
-                    if not isinstance(translated_objects, list):
-                        translated_objects = [translated_objects]
-                    translated_phrases = [obj.text if (obj is not None and hasattr(obj, 'text')) else None 
-                                          for obj in translated_objects]
+                    request = {
+                        "parent": parent,
+                        "contents": chunk_phrases,
+                        "mime_type": "text/plain",
+                        "target_language_code": "en",
+                    }
+                    response = translator_client.translate_text(request=request)
+                    translated_phrases = [trans.translated_text for trans in response.translations]
                     if any(tp is None for tp in translated_phrases):
                         raise Exception("La traducción en bloque devolvió None para alguna palabra")
                     break
                 except Exception as e:
                     attempts += 1
                     if attempts >= 3:
-                        # Fallback: traducir cada palabra individualmente
                         translated_phrases = []
                         for word in chunk_original_words:
                             try:
-                                t = translator.translate(word, src='es', dest='en')
-                                if t is not None and hasattr(t, 'text'):
-                                    translated_phrases.append(t.text)
+                                request_individual = {
+                                    "parent": parent,
+                                    "contents": [word],
+                                    "mime_type": "text/plain",
+                                    "target_language_code": "en",
+                                }
+                                response_individual = translator_client.translate_text(request=request_individual)
+                                if response_individual.translations:
+                                    translated_phrases.append(response_individual.translations[0].translated_text)
                                 else:
                                     translated_phrases.append(word)
                             except Exception:
@@ -1128,7 +1151,6 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     for page in result.pages:
         page_rows = list(page)
         if page_rows:
-            # Convertir cada fila a diccionario para formar el DataFrame
             df_chunk = pd.DataFrame([dict(row) for row in page_rows])
             df_list.append(df_chunk)
     df = pd.concat(df_list, ignore_index=True)
@@ -1158,7 +1180,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
             countries_to_translate.append(country)
     
     print(f"[TRANSFORMATION [START ▶️]] Traduciendo {len(countries_to_translate)} países en lote...", flush=True)
-    # Aquí se aplica la nueva lógica de traducción robusta con fallback:
+    # Se aplica la lógica de traducción robusta usando la API v3
     translated_dict = translate_batch_custom(countries_to_translate, prefix="El país llamado ", separator="|||", max_length=4000)
     
     countries_dic = _build_countries_dic()
@@ -1211,6 +1233,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     print("[END [FINISHED ✅]] Proceso finalizado.", flush=True)
     
     return sql_script
+
 
 
 
