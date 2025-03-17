@@ -884,7 +884,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     print(f"[EXTRACTION [START ▶️]] Extrayendo datos de {source_table}...", flush=True)
     country_fields_sql = ", ".join(source_country_list)
     query_source = f"SELECT {source_id_field}, {country_fields_sql} FROM `{source_table}`"
-    query_job = client.query(query_source, job_config=bigquery.QueryJobConfig(maximum_bytes_billed=1e10))
+    query_job = client.query(query_source, job_config=bigquery.QueryJobConfig(maximum_bytes_billed=int(1e10)))
     df_chunks = []
     result = query_job.result(page_size=chunk_size)
     for page in result.pages:
