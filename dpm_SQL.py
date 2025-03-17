@@ -721,6 +721,16 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     Retorna:
         str: Script SQL generado.
     """
+    import unicodedata
+    import time
+    import re
+    import pandas as pd
+    import pycountry
+    import pandas_gbq
+    from google.cloud import bigquery
+    from google.cloud import translate_v3 as translate
+    from rapidfuzz import fuzz, process
+
     print("[START ▶️] Iniciando mapeo de nombres de países...", flush=True)
     # Extracción de parámetros
     source_table = config.get("source_table")
