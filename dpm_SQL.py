@@ -696,6 +696,286 @@ def SQL_generate_country_from_phone(config: dict) -> str:
 
 
 
+# __________________________________________________________________________________________________________________________________________________________
+def SQL_generate_country_name_mapping(config: dict) -> str:
+    """
+    Mapea nombres de países en español a sus equivalentes según ISO 3166-1 utilizando traducción y fuzzy matching.
+    Sube una tabla auxiliar con el mapeo y genera el script SQL para actualizar la tabla destino.
+    
+    Parámetros en config:
+      - GCP_project_id (str): ID del proyecto en GCP.
+      - source_table (str): Tabla origen en formato 'proyecto.dataset.tabla'.
+      - source_country_name_best_list (list): Lista de campos de país en orden de prioridad.
+      - source_id_name_field (str): Campo identificador en la tabla origen.
+      - country_name_skip_values_list (list, opcional): Lista de valores a omitir en el mapeo.
+      - manual_mapping_dic (dict, opcional): Diccionario con mapeos manuales.
+      - destination_table (str): Tabla destino en formato 'proyecto.dataset.tabla'.
+      - destination_id_field_name (str): Campo identificador para el JOIN.
+      - destination_country_mapped_field_name (str): Nombre del campo a agregar en la tabla destino.
+      - temp_table_name (str, opcional): Nombre de la tabla auxiliar (default: "temp_country_mapping").
+      - temp_table_erase (bool): Si True, se elimina la tabla auxiliar tras el JOIN.
+      - chunk_size (int, opcional): Tamaño de cada chunk (default: 10000).
+      Además, config debe incluir las claves comunes para autenticación:
+            "ini_environment_identificated", "json_keyfile_local", "json_keyfile_colab", "json_keyfile_GCP_secret_id"
+    
+    Retorna:
+        str: Script SQL generado.
+    """
+    print("[START ▶️] Iniciando mapeo de nombres de países...", flush=True)
+    # Extracción de parámetros
+    source_table = config.get("source_table")
+    source_country_list = config.get("source_country_name_best_list")
+    source_id_field = config.get("source_id_name_field")
+    skip_values = config.get("country_name_skip_values_list", [])
+    manual_mapping_dic = config.get("manual_mapping_dic", {})
+    destination_table = config.get("destination_table")
+    destination_id_field = config.get("destination_id_field_name")
+    destination_country_field = config.get("destination_country_mapped_field_name")
+    temp_table_name = config.get("temp_table_name", "temp_country_mapping")
+    temp_table_erase = config.get("temp_table_erase", True)
+    chunk_size = config.get("chunk_size", 10000)
+    
+    # Validaciones
+    if not all(isinstance(x, str) and x for x in [source_table, source_id_field, destination_table, destination_id_field, destination_country_field]):
+        raise ValueError("[VALIDATION [ERROR ❌]] Algunos parámetros obligatorios no son válidos.")
+    if not isinstance(source_country_list, list) or not source_country_list:
+        raise ValueError("[VALIDATION [ERROR ❌]] 'source_country_name_best_list' es obligatorio y debe ser una lista.")
+    if not isinstance(skip_values, list):
+        raise ValueError("[VALIDATION [ERROR ❌]] 'country_name_skip_values_list' debe ser una lista.")
+    
+    # Funciones auxiliares internas
+    def _normalize_text(text: str) -> str:
+        text = text.lower().strip()
+        text = unicodedata.normalize('NFD', text)
+        return ''.join(c for c in text if unicodedata.category(c) != 'Mn').strip()
+    
+    def _get_best_country(row) -> str:
+        for field in source_country_list:
+            if pd.notna(row[field]) and row[field]:
+                return row[field]
+        return None
+    
+    def translate_batch_custom(words, prefix="El país llamado ", separator="|||", max_length=4000) -> dict:
+        from google.cloud import translate_v3 as translate
+        project_id = config.get("GCP_project_id")
+        creds = _authenticate_api(config, project_id)
+        translator_client = translate.TranslationServiceClient(credentials=creds)
+        location = "global"
+        parent = f"projects/{project_id}/locations/{location}"
+        try:
+            request_prefix = {
+                "parent": parent,
+                "contents": [prefix],
+                "mime_type": "text/plain",
+                "target_language_code": "en",
+            }
+            response_prefix = translator_client.translate_text(request=request_prefix)
+            english_prefix = response_prefix.translations[0].translated_text.strip() if response_prefix.translations else "The country called"
+        except Exception as e:
+            print(f"[TRANSLATION WARNING] Error al traducir el prefijo: {e}. Se usará valor por defecto.", flush=True)
+            english_prefix = "The country called"
+        results = {}
+        chunk_phrases = []
+        chunk_original_words = []
+        current_length = 0
+        def process_chunk():
+            nonlocal results, chunk_phrases, chunk_original_words, current_length
+            if not chunk_phrases:
+                return
+            attempts = 0
+            translated_phrases = None
+            while attempts < 3:
+                try:
+                    request = {
+                        "parent": parent,
+                        "contents": chunk_phrases,
+                        "mime_type": "text/plain",
+                        "target_language_code": "en",
+                    }
+                    response = translator_client.translate_text(request=request)
+                    translated_phrases = [t.translated_text for t in response.translations]
+                    if any(tp is None for tp in translated_phrases):
+                        raise Exception("Traducción incompleta.")
+                    break
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= 3:
+                        translated_phrases = []
+                        for word in chunk_original_words:
+                            try:
+                                request_ind = {
+                                    "parent": parent,
+                                    "contents": [word],
+                                    "mime_type": "text/plain",
+                                    "target_language_code": "en",
+                                }
+                                response_ind = translator_client.translate_text(request=request_ind)
+                                translated_phrases.append(response_ind.translations[0].translated_text if response_ind.translations else word)
+                            except Exception:
+                                translated_phrases.append(word)
+                        break
+                    time.sleep(1)
+            import re
+            prefix_pattern = re.compile(r'^' + re.escape(english_prefix), flags=re.IGNORECASE)
+            for orig, phrase in zip(chunk_original_words, translated_phrases):
+                phrase = phrase.strip() if phrase else orig
+                translated_word = prefix_pattern.sub('', phrase).strip()
+                results[orig] = translated_word
+            chunk_phrases.clear()
+            chunk_original_words.clear()
+            current_length = 0
+        for word in words:
+            if not word:
+                continue
+            phrase = f"{prefix}{word}"
+            phrase_length = len(phrase)
+            if chunk_phrases and (current_length + len(separator) + phrase_length > max_length):
+                process_chunk()
+            current_length = phrase_length if not chunk_phrases else current_length + len(separator) + phrase_length
+            chunk_phrases.append(phrase)
+            chunk_original_words.append(word)
+        if chunk_phrases:
+            process_chunk()
+        return results
+    
+    def _build_countries_dic():
+        countries_dic = {}
+        for country in list(pycountry.countries):
+            norm_name = _normalize_text(country.name)
+            countries_dic[norm_name] = country
+            if hasattr(country, 'official_name'):
+                countries_dic[_normalize_text(country.official_name)] = country
+            if hasattr(country, 'common_name'):
+                countries_dic[_normalize_text(country.common_name)] = country
+        return countries_dic
+    
+    def _build_update_sql(aux_tbl: str, client: bigquery.Client) -> str:
+        try:
+            dest_tbl = client.get_table(destination_table)
+            dest_fields = [field.name for field in dest_tbl.schema]
+        except Exception:
+            dest_fields = []
+        if destination_country_field in dest_fields:
+            join_sql = (
+                f"CREATE OR REPLACE TABLE `{destination_table}` AS\n"
+                f"SELECT d.* REPLACE(m.country_name_iso AS `{destination_country_field}`)\n"
+                f"FROM `{destination_table}` d\n"
+                f"LEFT JOIN `{aux_tbl}` m\n"
+                f"  ON d.{destination_id_field} = m.{source_id_field};"
+            )
+        else:
+            join_sql = (
+                f"CREATE OR REPLACE TABLE `{destination_table}` AS\n"
+                f"SELECT d.*, m.country_name_iso AS `{destination_country_field}`\n"
+                f"FROM `{destination_table}` d\n"
+                f"LEFT JOIN `{aux_tbl}` m\n"
+                f"  ON d.{destination_id_field} = m.{source_id_field};"
+            )
+        drop_sql = ""
+        if config.get("temp_table_erase", True):
+            drop_sql = f"DROP TABLE `{aux_tbl}`;"
+        return join_sql + "\n" + drop_sql
+
+    # Autenticación y creación del cliente
+    source_project = source_table.split(".")[0]
+    creds = _authenticate_api(config, source_project)
+    client = bigquery.Client(project=source_project, credentials=creds)
+    
+    print(f"[EXTRACTION [START ▶️]] Extrayendo datos de {source_table}...", flush=True)
+    country_fields_sql = ", ".join(source_country_list)
+    query_source = f"SELECT {source_id_field}, {country_fields_sql} FROM `{source_table}`"
+    query_job = client.query(query_source, job_config=bigquery.QueryJobConfig(maximum_bytes_billed=1e10))
+    df_chunks = []
+    result = query_job.result(page_size=chunk_size)
+    for page in result.pages:
+        page_rows = list(page)
+        if page_rows:
+            df_chunks.append(pd.DataFrame([dict(row) for row in page_rows]))
+    df = pd.concat(df_chunks, ignore_index=True)
+    if df.empty:
+        print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la tabla origen.", flush=True)
+        return ""
+    
+    print("[TRANSFORMATION [INFO ℹ️]] Procesando la mejor opción de país...", flush=True)
+    df["best_country_name"] = df.apply(_get_best_country, axis=1)
+    unique_countries = df["best_country_name"].dropna().unique().tolist()
+    print(f"[METRICS [INFO ℹ️]] Se encontraron {len(unique_countries)} países únicos.", flush=True)
+    
+    skip_set = set(_normalize_text(x) for x in skip_values if isinstance(x, str))
+    mapping_results = {}
+    countries_to_translate = []
+    for country in unique_countries:
+        if not isinstance(country, str):
+            mapping_results[country] = None
+            continue
+        if _normalize_text(country) in skip_set:
+            print(f"[EXTRACTION [INFO ℹ️]] Saltando mapeo para '{country}' (valor omitido).", flush=True)
+            mapping_results[country] = country
+        else:
+            countries_to_translate.append(country)
+    
+    print(f"[TRANSFORMATION [INFO ℹ️]] Traduciendo {len(countries_to_translate)} países...", flush=True)
+    translated_dict = translate_batch_custom(countries_to_translate, prefix="El país llamado ", separator="|||", max_length=4000)
+    countries_dic = _build_countries_dic()
+    country_iso_keys = list(countries_dic.keys())
+    for country in countries_to_translate:
+        translated_text = translated_dict.get(country, country)
+        normalized_translated = _normalize_text(translated_text)
+        override_found = False
+        for canonical, variants in manual_mapping_dic.items():
+            for variant in variants:
+                if _normalize_text(variant) == normalized_translated:
+                    mapping_results[country] = canonical
+                    override_found = True
+                    print(f"[MANUAL [INFO 📝]] '{country}' mapeado manualmente a: {canonical}", flush=True)
+                    break
+            if override_found:
+                break
+        if override_found:
+            continue
+        best_match = process.extractOne(normalized_translated, country_iso_keys, scorer=fuzz.ratio)
+        if best_match:
+            match_key, score, _ = best_match
+            country_obj = countries_dic[match_key]
+            mapping_results[country] = country_obj.common_name if hasattr(country_obj, 'common_name') else country_obj.name
+            print(f"[SUCCESS [INFO ✅]] '{country}' mapeado a: {mapping_results[country]} (Score: {score})", flush=True)
+        else:
+            print(f"[ERROR [INFO ❌]] No se encontró mapeo válido para '{country}'", flush=True)
+            mapping_results[country] = None
+
+    df["country_name_iso"] = df["best_country_name"].map(mapping_results)
+    mapping_columns = [source_id_field] + source_country_list + ["country_name_iso"]
+    mapping_df = df[mapping_columns].drop_duplicates()
+    
+    parts = destination_table.split(".")
+    if len(parts) != 3:
+        raise ValueError("[VALIDATION [ERROR ❌]] 'destination_table' debe ser 'proyecto.dataset.tabla'.")
+    dest_project, dest_dataset, _ = parts
+    aux_table = f"{dest_project}.{dest_dataset}.{temp_table_name}"
+    
+    print(f"[LOAD START ▶️] Subiendo tabla auxiliar {aux_table}...", flush=True)
+    pandas_gbq.to_gbq(mapping_df, destination_table=aux_table, project_id=dest_project, if_exists="replace", credentials=creds)
+    
+    sql_script = _build_update_sql(aux_table, client)
+    print("[TRANSFORMATION [SUCCESS ✅]] SQL generado para actualizar la tabla destino.", flush=True)
+    print(sql_script, flush=True)
+    print("[END FINISHED ✅] Proceso finalizado.", flush=True)
+    return sql_script
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # __________________________________________________________________________________________________________________________________________________________
