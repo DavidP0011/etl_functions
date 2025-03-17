@@ -955,10 +955,9 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     import time
     import re
     import unicodedata
-    import re
     import pandas as pd
     import pandas_gbq
-    from google.cloud import bigquery, secretmanager
+    from google.cloud import bigquery
     from google.oauth2 import service_account
     import pycountry
     from rapidfuzz import process, fuzz
@@ -966,6 +965,8 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     # --- Autenticación ---
     print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        # Importar secretmanager solo en entornos GCP
+        from google.cloud import secretmanager
         secret_id = config.get("json_keyfile_GCP_secret_id")
         if not secret_id:
             raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
@@ -1273,6 +1274,7 @@ def SQL_generate_country_name_mapping(config: dict) -> str:
     print("[END [FINISHED ✅]] Proceso finalizado.", flush=True)
     
     return sql_script
+
 
 
 
