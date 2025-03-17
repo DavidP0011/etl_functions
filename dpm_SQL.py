@@ -702,16 +702,18 @@ def SQL_generate_country_from_phone(config: dict) -> str:
 
     import os, time, json, re, unicodedata
     import pandas as pd
-    from google.cloud import bigquery, secretmanager
+    from google.cloud import bigquery
     from google.oauth2 import service_account
     import pandas_gbq
 
     # --- Autenticación ---
     print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
     if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        # Importar secretmanager solo en entornos GCP
+        from google.cloud import secretmanager
         secret_id = config.get("json_keyfile_GCP_secret_id")
         if not secret_id:
-            raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
+            raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
         print("[AUTHENTICATION [INFO] ℹ️] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
         project = os.environ.get("GOOGLE_CLOUD_PROJECT")
         client_sm = secretmanager.SecretManagerServiceClient()
@@ -881,7 +883,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
                 f"LEFT JOIN `{aux_table}` m\n"
                 f"  ON d.{config['destination_id_match_contact_field_name']} = m.{config['source_contact_id_field_name']};"
             )
-        # Si temp_table_erase es False, no se elimina la tabla auxiliar
+        # Si temp_table_erase es True, se elimina la tabla auxiliar
         drop_sql = ""
         if config.get("temp_table_erase", True):
             drop_sql = f"DROP TABLE `{aux_table}`;"
@@ -893,6 +895,7 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     print("[END [FINISHED ✅]] Proceso finalizado.\n", flush=True)
     
     return sql_script
+
 
 
 
