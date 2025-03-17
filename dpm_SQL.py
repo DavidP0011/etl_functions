@@ -152,7 +152,7 @@ def DF_to_GBQ(params: dict) -> None:
 # ----------------------------------------------------------------------------
 # GBQ_execute_SQL()
 # ----------------------------------------------------------------------------
-def gbq_execute_sql(config: dict) -> None:
+def GBQ_execute_SQL(config: dict) -> None:
     """
     Ejecuta un script SQL en Google BigQuery y muestra un resumen detallado con estadísticas del proceso.
 
