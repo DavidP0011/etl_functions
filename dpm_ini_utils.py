@@ -1,5 +1,65 @@
 
 # __________________________________________________________________________________________________________________________________________________________
+# _ini_authenticate_API
+# __________________________________________________________________________________________________________________________________________________________
+# Función auxiliar común para autenticación según el diccionario de configuración.
+def _ini_authenticate_API(config: dict, project_id: str):
+    """
+    Autentica utilizando el diccionario común en config.
+    
+    Dependiendo de 'ini_environment_identificated' se utiliza:
+      - "LOCAL": usa la key "json_keyfile_local"
+      - "COLAB": usa la key "json_keyfile_colab"
+      - Para GCP (por ejemplo, "COLAB_ENTERPRISE" o un project_id): usa "json_keyfile_GCP_secret_id"
+      
+    Args:
+      config (dict): Diccionario de configuración.
+      project_id (str): ID del proyecto GCP (se usa en la autenticación GCP).
+      
+    Returns:
+      Credentials: Objeto de credenciales para la autenticación.
+    """
+    env = config.get("ini_environment_identificated", "COLAB")
+    if env == "LOCAL":
+        json_path = config.get("json_keyfile_local")
+        if not json_path:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_local' en config para entorno LOCAL.")
+        credentials = service_account.Credentials.from_service_account_file(json_path)
+    elif env == "COLAB":
+        json_path = config.get("json_keyfile_colab")
+        if not json_path:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_colab' en config para entorno COLAB.")
+        credentials = service_account.Credentials.from_service_account_file(json_path)
+    else:
+        # Asumimos que para GCP (COLAB_ENTERPRISE o si se pasa un project_id distinto) se usa Secret Manager.
+        secret_id = config.get("json_keyfile_GCP_secret_id")
+        if not secret_id:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_GCP_secret_id' en config para entornos GCP.")
+        from google.cloud import secretmanager
+        client_sm = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client_sm.access_secret_version(name=secret_name)
+        secret_str = response.payload.data.decode("UTF-8")
+        import json
+        secret_info = json.loads(secret_str)
+        credentials = service_account.Credentials.from_service_account_info(secret_info)
+    return credentials
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# __________________________________________________________________________________________________________________________________________________________
 # ini_install_libraries
 # __________________________________________________________________________________________________________________________________________________________
 def ini_install_libraries(params: dict) -> None:
