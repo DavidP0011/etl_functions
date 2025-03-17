@@ -1513,12 +1513,13 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
       - values_non_matched_result (str): Valor para registros sin match.
       - json_keyfile_GCP_secret_id (str, opcional): Secret ID para GCP.
       - json_keyfile_colab (str, opcional): Ruta al archivo JSON para entornos no GCP.
+    
     Retorna:
         tuple: (sql_script, mapping_df)
     """
     import os, json, unicodedata, re
     import pandas as pd
-    from google.cloud import bigquery, secretmanager
+    from google.cloud import bigquery
     from google.oauth2 import service_account
     import pandas_gbq
 
@@ -1586,10 +1587,10 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
             norm_raw = _normalize_text(raw)
             if norm_raw in reference_mapping:
                 mapping_results[raw] = reference_mapping[norm_raw]
-                print(f"[TRANSFORMATION [SUCCESS ✅]] [MATCH] '{raw}' encontrado en referencia.", flush=True)
+                print(f"[TRANSFORMATION SUCCESS ✅] [MATCH] '{raw}' encontrado en referencia.", flush=True)
             else:
                 mapping_results[raw] = { col: non_matched_value for col in ref_field_names_list }
-                print(f"[TRANSFORMATION [WARNING ⚠️]] [NO MATCH] '{raw}' no encontrado.", flush=True)
+                print(f"[TRANSFORMATION WARNING ⚠️] [NO MATCH] '{raw}' no encontrado.", flush=True)
         return mapping_results
     
     # ───── Autenticación ─────
@@ -1598,29 +1599,29 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
         if os.environ.get("GOOGLE_CLOUD_PROJECT"):
             secret_id = config.get("json_keyfile_GCP_secret_id")
             if not secret_id:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
+                raise ValueError("[AUTHENTICATION ERROR ❌] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
             from google.cloud import secretmanager
             client_sm = secretmanager.SecretManagerServiceClient()
             secret_name = f"projects/{source_project}/secrets/{secret_id}/versions/latest"
             response = client_sm.access_secret_version(name=secret_name)
             secret_string = response.payload.data.decode("UTF-8")
             creds = service_account.Credentials.from_service_account_info(json.loads(secret_string))
-            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas desde Secret Manager.", flush=True)
+            print("[AUTHENTICATION SUCCESS ✅] Credenciales obtenidas desde Secret Manager.", flush=True)
         else:
             json_path = config.get("json_keyfile_colab")
             if not json_path:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
+                raise ValueError("[AUTHENTICATION ERROR ❌] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
             creds = service_account.Credentials.from_service_account_file(json_path)
-            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
+            print("[AUTHENTICATION SUCCESS ✅] Credenciales cargadas desde archivo JSON.", flush=True)
         client = bigquery.Client(project=source_project, credentials=creds)
         return client
 
     client = _obtener_cliente()
     df_source = _extract_source_values(source_table, source_field, client)
     if df_source.empty:
-        print("[EXTRACTION [WARNING ⚠️]] No se encontraron valores en la tabla source.", flush=True)
+        print("[EXTRACTION WARNING ⚠️] No se encontraron valores en la tabla source.", flush=True)
         return ("", pd.DataFrame())
-    print(f"[EXTRACTION [INFO ℹ️]] Se encontraron {len(df_source)} valores únicos.", flush=True)
+    print(f"[EXTRACTION SUCCESS ✅] Se encontraron {len(df_source)} valores únicos.", flush=True)
     
     reference_mapping = _build_reference_mapping(ref_df, ref_field_names_list)
     mapping_results = _apply_mapping(df_source, reference_mapping)
@@ -1636,14 +1637,14 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     
     parts = source_table.split(".")
     if len(parts) != 3:
-        raise ValueError("[VALIDATION [ERROR ❌]] 'source_table_to_add_fields' debe ser 'proyecto.dataset.tabla'.")
+        raise ValueError("[VALIDATION ERROR ❌] 'source_table_to_add_fields' debe ser 'proyecto.dataset.tabla'.")
     dest_project, dest_dataset, _ = parts
     aux_table = f"{dest_project}.{dest_dataset}.temp_new_columns_mapping"
     
-    print(f"[LOAD [START ▶️]] Subiendo tabla auxiliar {aux_table}...", flush=True)
+    print(f"[LOAD START ▶️] Subiendo tabla auxiliar {aux_table}...", flush=True)
     pandas_gbq.to_gbq(mapping_df, destination_table=aux_table, project_id=dest_project, if_exists="replace", credentials=client._credentials)
     
-    join_fields = [ col for col in ref_field_names_list if ref_field_names_dic.get(col, False) ]
+    join_fields = [col for col in ref_field_names_list if ref_field_names_dic.get(col, False)]
     new_columns_sql = ",\n".join([f"m.`{sanitized_columns[col]}` AS `{sanitized_columns[col]}`" for col in join_fields])
     update_sql = (
         f"CREATE OR REPLACE TABLE `{source_table}` AS\n"
@@ -1654,8 +1655,9 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     )
     drop_sql = f"DROP TABLE `{aux_table}`;"
     sql_script = update_sql + "\n" + drop_sql
-    print("[END [FINISHED ✅]] SQL para nuevas columnas generado.\n", flush=True)
+    print("[END FINISHED ✅] SQL para nuevas columnas generado.", flush=True)
     return sql_script, mapping_df
+
 
 
 
