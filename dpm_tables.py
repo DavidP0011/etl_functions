@@ -154,67 +154,6 @@ def fields_name_format(config):
 
 
 # ----------------------------------------------------------------------------
-# fields_name_format() permanece sin cambios
-# ----------------------------------------------------------------------------
-def fields_name_format(config):
-    """
-    Formatea nombres de campos de datos según configuraciones específicas.
-    
-    Parámetros en config:
-      - fields_name_raw_list (list): Lista de nombres de campos.
-      - formato_final (str, opcional): 'CamelCase', 'snake_case', 'Sentence case', o None.
-      - reemplazos (dict, opcional): Diccionario de términos a reemplazar.
-      - siglas (list, opcional): Lista de siglas que deben mantenerse en mayúsculas.
-    
-    Retorna:
-        pd.DataFrame: DataFrame con columnas 'Campo Original' y 'Campo Formateado'.
-    """
-    print("[START 🚀] Iniciando formateo de nombres de campos...", flush=True)
-    
-    def aplicar_reemplazos(field, reemplazos):
-        for key, value in sorted(reemplazos.items(), key=lambda x: -len(x[0])):
-            if key in field:
-                field = field.replace(key, value)
-        return field
-
-    def formatear_campo(field, formato, siglas):
-        if formato is None or formato is False:
-            return field
-        words = [w for w in re.split(r'[_\-\s]+', field) if w]
-        if formato == 'CamelCase':
-            return ''.join(
-                word.upper() if word.upper() in siglas
-                else word.capitalize() if idx == 0
-                else word.lower()
-                for idx, word in enumerate(words)
-            )
-        elif formato == 'snake_case':
-            return '_'.join(
-                word.upper() if word.upper() in siglas
-                else word.lower() for word in words
-            )
-        elif formato == 'Sentence case':
-            return ' '.join(
-                word.upper() if word.upper() in siglas
-                else word.capitalize() if idx == 0
-                else word.lower()
-                for idx, word in enumerate(words)
-            )
-        else:
-            raise ValueError(f"Formato '{formato}' no soportado.")
-    
-    resultado = []
-    for field in config.get('fields_name_raw_list', []):
-        original_field = field
-        field = aplicar_reemplazos(field, config.get('reemplazos', {}))
-        formatted_field = formatear_campo(field, config.get('formato_final', 'CamelCase'), [sig.upper() for sig in config.get('siglas', [])])
-        resultado.append({'Campo Original': original_field, 'Campo Formateado': formatted_field})
-    
-    df_result = pd.DataFrame(resultado)
-    print("[END [FINISHED 🏁]] Formateo de nombres completado.\n", flush=True)
-    return df_result
-
-# ----------------------------------------------------------------------------
 # table_various_sources_to_DF()
 # ----------------------------------------------------------------------------
 def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
