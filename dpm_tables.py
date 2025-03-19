@@ -4,10 +4,72 @@
 from google.cloud import bigquery
 import pandas as pd
 import pandas_gbq
+
 import unicodedata
 import re
 import time
 import os
+import io
+import json
+
+# ----------------------------------------------------------------------------
+# _ini_authenticate_API()
+# ----------------------------------------------------------------------------
+def _ini_authenticate_API(config: dict, project_id: str):
+    """
+    Autentica utilizando el diccionario común en config.
+    
+    Dependiendo de 'ini_environment_identificated' se utiliza:
+      - "LOCAL": usa la key "json_keyfile_local"
+      - "COLAB": usa la key "json_keyfile_colab"
+      - Para GCP (por ejemplo, "COLAB_ENTERPRISE" o un project_id): usa "json_keyfile_GCP_secret_id"
+      
+    Args:
+      config (dict): Diccionario de configuración.
+      project_id (str): ID del proyecto GCP (se usa en la autenticación GCP).
+      
+    Returns:
+      Credentials: Objeto de credenciales para la autenticación.
+    """
+    from google.oauth2 import service_account
+
+    env = config.get("ini_environment_identificated", "COLAB")
+    if env == "LOCAL":
+        json_path = config.get("json_keyfile_local")
+        if not json_path:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_local' en config para entorno LOCAL.")
+        credentials = service_account.Credentials.from_service_account_file(json_path)
+    elif env == "COLAB":
+        json_path = config.get("json_keyfile_colab")
+        if not json_path:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_colab' en config para entorno COLAB.")
+        credentials = service_account.Credentials.from_service_account_file(json_path)
+    else:
+        # Asumimos que para GCP (COLAB_ENTERPRISE o si se pasa un project_id distinto) se usa Secret Manager.
+        secret_id = config.get("json_keyfile_GCP_secret_id")
+        if not secret_id:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_GCP_secret_id' en config para entornos GCP.")
+        from google.cloud import secretmanager
+        client_sm = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client_sm.access_secret_version(name=secret_name)
+        secret_str = response.payload.data.decode("UTF-8")
+        import json
+        secret_info = json.loads(secret_str)
+        credentials = service_account.Credentials.from_service_account_info(secret_info)
+    return credentials
+
+
+
+
+
+
+
+
+
+
+
+
 
 # ----------------------------------------------------------------------------
 # fields_name_format()
@@ -90,31 +152,77 @@ def fields_name_format(config):
 
 
 
+
+# ----------------------------------------------------------------------------
+# fields_name_format() permanece sin cambios
+# ----------------------------------------------------------------------------
+def fields_name_format(config):
+    """
+    Formatea nombres de campos de datos según configuraciones específicas.
+    
+    Parámetros en config:
+      - fields_name_raw_list (list): Lista de nombres de campos.
+      - formato_final (str, opcional): 'CamelCase', 'snake_case', 'Sentence case', o None.
+      - reemplazos (dict, opcional): Diccionario de términos a reemplazar.
+      - siglas (list, opcional): Lista de siglas que deben mantenerse en mayúsculas.
+    
+    Retorna:
+        pd.DataFrame: DataFrame con columnas 'Campo Original' y 'Campo Formateado'.
+    """
+    print("[START 🚀] Iniciando formateo de nombres de campos...", flush=True)
+    
+    def aplicar_reemplazos(field, reemplazos):
+        for key, value in sorted(reemplazos.items(), key=lambda x: -len(x[0])):
+            if key in field:
+                field = field.replace(key, value)
+        return field
+
+    def formatear_campo(field, formato, siglas):
+        if formato is None or formato is False:
+            return field
+        words = [w for w in re.split(r'[_\-\s]+', field) if w]
+        if formato == 'CamelCase':
+            return ''.join(
+                word.upper() if word.upper() in siglas
+                else word.capitalize() if idx == 0
+                else word.lower()
+                for idx, word in enumerate(words)
+            )
+        elif formato == 'snake_case':
+            return '_'.join(
+                word.upper() if word.upper() in siglas
+                else word.lower() for word in words
+            )
+        elif formato == 'Sentence case':
+            return ' '.join(
+                word.upper() if word.upper() in siglas
+                else word.capitalize() if idx == 0
+                else word.lower()
+                for idx, word in enumerate(words)
+            )
+        else:
+            raise ValueError(f"Formato '{formato}' no soportado.")
+    
+    resultado = []
+    for field in config.get('fields_name_raw_list', []):
+        original_field = field
+        field = aplicar_reemplazos(field, config.get('reemplazos', {}))
+        formatted_field = formatear_campo(field, config.get('formato_final', 'CamelCase'), [sig.upper() for sig in config.get('siglas', [])])
+        resultado.append({'Campo Original': original_field, 'Campo Formateado': formatted_field})
+    
+    df_result = pd.DataFrame(resultado)
+    print("[END [FINISHED 🏁]] Formateo de nombres completado.\n", flush=True)
+    return df_result
+
 # ----------------------------------------------------------------------------
 # table_various_sources_to_DF()
 # ----------------------------------------------------------------------------
-
 def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
     """
     Extrae datos desde distintos orígenes (archivo, Google Sheets, BigQuery o GCS) y los convierte en un DataFrame.
     
     Parámetros en params:
-      - file_source_table_path (str, opcional): Ruta al archivo. Si está vacío, se usará otra fuente.
-      - spreadsheet_source_table_id (str, opcional): URL o ID de la hoja de cálculo (usado si file_source_table_path está vacío).
-      - spreadsheet_source_table_worksheet_name (str, opcional): Nombre de la pestaña a extraer (requiere spreadsheet_source_table_id).
-      - GBQ_source_table_name (str, opcional): Nombre de la tabla en BigQuery (ej: "animum-dev-datawarehouse.vl_01raw_01.MA_ENTIDADES").
-      - GCS_source_table_bucket_name (str, opcional): Nombre del bucket en Google Cloud Storage.
-      - GCS_source_table_file_path (str, opcional): Ruta al archivo en GCS.
-      - source_table_row_start (int, opcional): Primera fila a leer (0-indexado). Por defecto 0.
-      - source_table_row_end (int, opcional): Última fila a leer (excluyente). Si es None, lee hasta el final.
-      - source_table_fields_list (list, opcional): Lista de campos a seleccionar, ej: ["Nombre_Personal", "Apellidos", "Codigo_interno"].
-      - source_table_col_start (int, opcional): Primera columna a leer (0-indexado). Por defecto 0.
-      - source_table_col_end (int, opcional): Última columna a leer (excluyente). Si es None, lee todas.
-      - json_keyfile_GCP_secret_id (str, requerido en entornos GCP): Secret ID del JSON de credenciales alojado en Secret Manager.
-      - json_keyfile_colab (str, requerido en entornos local/Colab): Ruta al archivo JSON de credenciales.
-      - ini_environment_identificated (str, requerido): Valor que indica el entorno de ejecución. 
-         * "COLAB" o "LOCAL" para usar json_keyfile_colab.
-         * "COLAB_ENTERPRISE" o un project_id de GCP para usar json_keyfile_GCP_secret_id.
+      - (ver docstring completo en la versión original)
     
     Retorna:
       pd.DataFrame: DataFrame con los datos extraídos y procesados.
@@ -123,7 +231,6 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
       RuntimeError: Si ocurre un error al extraer o procesar los datos.
       ValueError: Si faltan parámetros obligatorios para identificar el origen de datos.
     """
-    import os
     import re
     import io
     import time
@@ -269,8 +376,6 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
     # ────────────────────────────── Fuente – Google Sheets ──────────────────────────────
     def _leer_google_sheet(params: dict) -> pd.DataFrame:
         from googleapiclient.discovery import build
-        import pandas as pd
-        import re
 
         spreadsheet_id_raw = params.get("spreadsheet_source_table_id")
         if "spreadsheets/d/" in spreadsheet_id_raw:
@@ -291,36 +396,16 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
                 "https://www.googleapis.com/auth/spreadsheets",
                 "https://www.googleapis.com/auth/drive"
             ]
+            # Determinación del project_id según el entorno
             ini_env = params.get("ini_environment_identificated")
             if not ini_env:
                 raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en params.")
-            from google.oauth2.service_account import Credentials
-            if ini_env in ["COLAB", "LOCAL"]:
-                json_keyfile = params.get("json_keyfile_colab")
-                if not json_keyfile:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se debe proporcionar 'json_keyfile_colab'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Usando json_keyfile_colab.", flush=True)
-                creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
-            else:
-                secret_id = params.get("json_keyfile_GCP_secret_id")
-                if not secret_id:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-                print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando Secret Manager con json_keyfile_GCP_secret_id.", flush=True)
-                from google.cloud import secretmanager
-                import json
-                if ini_env == "COLAB_ENTERPRISE":
-                    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-                else:
-                    project_id = ini_env
-                if not project_id:
-                    raise ValueError("[VALIDATION [ERROR ❌]] No se encontró un project_id válido para autenticación en GCP.")
-                client = secretmanager.SecretManagerServiceClient()
-                secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-                response = client.access_secret_version(name=secret_name)
-                secret_string = response.payload.data.decode("UTF-8")
-                secret_info = json.loads(secret_string)
-                creds = Credentials.from_service_account_info(secret_info, scopes=scope_list)
+            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
 
+            # Uso de _ini_authenticate_API para la autenticación
+            creds = _ini_authenticate_API(params, project_id)
+            creds = creds.with_scopes(scope_list)
+            
             service = build('sheets', 'v4', credentials=creds)
             range_name = f"{worksheet_name}"
             print("[EXTRACTION [START ⏳]] Extrayendo datos de Google Sheets...", flush=True)
@@ -336,10 +421,8 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
             data_fixed = []
             for row in data[1:]:
                 if len(row) < n_columns:
-                    # Se rellenan las filas con menos columnas con None.
                     row = row + [None] * (n_columns - len(row))
                 elif len(row) > n_columns:
-                    # Se truncan las filas que tienen más columnas de las necesarias.
                     row = row[:n_columns]
                 data_fixed.append(row)
 
@@ -350,43 +433,20 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
         except Exception as e:
             raise ValueError(f"[EXTRACTION [ERROR ❌]] Error al extraer datos de Google Sheets: {e}")
 
-
     # ────────────────────────────── Fuente – BigQuery ──────────────────────────────
     def _leer_gbq(params: dict) -> pd.DataFrame:
-        from google.cloud import bigquery
         scope_list = ["https://www.googleapis.com/auth/bigquery", "https://www.googleapis.com/auth/drive"]
-        # Utilizar la nueva key
         ini_env = params.get("ini_environment_identificated")
         if not ini_env:
             raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en params.")
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
+
+        # Uso de _ini_authenticate_API para la autenticación en BigQuery
         from google.oauth2.service_account import Credentials
-        if ini_env in ["COLAB", "LOCAL"]:
-            json_keyfile = params.get("json_keyfile_colab")
-            if not json_keyfile:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se debe proporcionar 'json_keyfile_colab'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Usando json_keyfile_colab para BigQuery.", flush=True)
-            creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
-        else:
-            secret_id = params.get("json_keyfile_GCP_secret_id")
-            if not secret_id:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando Secret Manager para BigQuery.", flush=True)
-            from google.cloud import secretmanager
-            import json
-            if ini_env == "COLAB_ENTERPRISE":
-                project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-            else:
-                project_id = ini_env
-            if not project_id:
-                raise ValueError("[VALIDATION [ERROR ❌]] No se encontró un project_id válido para autenticación en GCP.")
-            client_sm = secretmanager.SecretManagerServiceClient()
-            secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-            response = client_sm.access_secret_version(name=secret_name)
-            secret_string = response.payload.data.decode("UTF-8")
-            secret_info = json.loads(secret_string)
-            creds = Credentials.from_service_account_info(secret_info, scopes=scope_list)
+        creds = _ini_authenticate_API(params, project_id)
+        creds = creds.with_scopes(scope_list)
     
-        client_bq = bigquery.Client(credentials=creds, project=os.environ.get("GOOGLE_CLOUD_PROJECT", ini_env))
+        client_bq = bigquery.Client(credentials=creds, project=project_id)
         gbq_table = params.get("GBQ_source_table_name")
         if not gbq_table:
             raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro 'GBQ_source_table_name' para BigQuery.")
@@ -401,44 +461,24 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
 
     # ────────────────────────────── Fuente – Google Cloud Storage (GCS) ──────────────────────────────
     def _leer_gcs(params: dict) -> pd.DataFrame:
-        from google.cloud import storage
         scope_list = ["https://www.googleapis.com/auth/devstorage.read_only"]
         ini_env = params.get("ini_environment_identificated")
         if not ini_env:
             raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en params.")
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
+
+        # Uso de _ini_authenticate_API para la autenticación en GCS
         from google.oauth2.service_account import Credentials
-        if ini_env in ["COLAB", "LOCAL"]:
-            json_keyfile = params.get("json_keyfile_colab")
-            if not json_keyfile:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se debe proporcionar 'json_keyfile_colab'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno local/Colab detectado. Usando json_keyfile_colab para GCS.", flush=True)
-            creds = Credentials.from_service_account_file(json_keyfile, scopes=scope_list)
-        else:
-            secret_id = params.get("json_keyfile_GCP_secret_id")
-            if not secret_id:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-            print("[AUTHENTICATION [INFO] 🔐] Entorno GCP detectado. Usando Secret Manager para GCS.", flush=True)
-            from google.cloud import secretmanager
-            import json
-            if ini_env == "COLAB_ENTERPRISE":
-                project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-            else:
-                project_id = ini_env
-            if not project_id:
-                raise ValueError("[VALIDATION [ERROR ❌]] No se encontró un project_id válido para autenticación en GCP.")
-            client_sm = secretmanager.SecretManagerServiceClient()
-            secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-            response = client_sm.access_secret_version(name=secret_name)
-            secret_string = response.payload.data.decode("UTF-8")
-            secret_info = json.loads(secret_string)
-            creds = Credentials.from_service_account_info(secret_info, scopes=scope_list)
+        creds = _ini_authenticate_API(params, project_id)
+        creds = creds.with_scopes(scope_list)
     
         try:
             bucket_name = params.get("GCS_source_table_bucket_name")
             file_path = params.get("GCS_source_table_file_path")
             if not bucket_name or not file_path:
                 raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'GCS_source_table_bucket_name' o 'GCS_source_table_file_path'.")
-            client_storage = storage.Client(credentials=creds, project=os.environ.get("GOOGLE_CLOUD_PROJECT", ini_env))
+            from google.cloud import storage
+            client_storage = storage.Client(credentials=creds, project=project_id)
             bucket = client_storage.bucket(bucket_name)
             blob = bucket.blob(file_path)
             print(f"[EXTRACTION [START ⏳]] Descargando archivo '{file_path}' del bucket '{bucket_name}'...", flush=True)
@@ -493,6 +533,11 @@ def table_various_sources_to_DF(params: dict) -> pd.DataFrame:
 
 
 
+
+
+
+
+
 # ----------------------------------------------------------------------------
 # table_DF_to_various_targets()
 # ----------------------------------------------------------------------------
@@ -505,22 +550,7 @@ def table_DF_to_various_targets(params: dict) -> None:
 
     Args:
         params (dict):
-            - df (pd.DataFrame) [requerido]: DataFrame a exportar.
-            - file_target_table_path (str, opcional): Ruta del archivo destino. Ej: "/ruta/al/archivo.csv" o ".xlsx".
-            - file_target_table_overwrite_or_append (str, opcional): "overwrite" o "append" para archivos locales.
-            - spreadsheet_target_table_id (str, opcional): URL o ID de la hoja de cálculo destino.
-            - spreadsheet_target_table_worksheet_name (str, opcional): Nombre de la pestaña destino.
-            - spreadsheet_target_table_overwrite_or_append (str, opcional): "overwrite" o "append" para Google Sheets.
-            - GBQ_target_table_name (str, opcional): Nombre de la tabla destino en BigQuery (ej: "proyecto.dataset.tabla").
-            - GBQ_target_table_overwrite_or_append (str, opcional): "overwrite" o "append" para BigQuery.
-            - GCS_target_table_bucket_name (str, opcional): Nombre del bucket destino en GCS.
-            - GCS_target_table_file_path (str, opcional): Ruta del archivo en GCS destino.
-            - GCS_target_table_overwrite_or_append (str, opcional): "overwrite" o "append" para GCS.
-            - json_keyfile_GCP_secret_id (str, requerido en entornos GCP): Secret ID del JSON de credenciales alojado en Secret Manager.
-            - json_keyfile_colab (str, requerido en entornos local/Colab): Ruta al archivo JSON de credenciales.
-            - ini_environment_identificated (str, requerido): Valor que indica el entorno de ejecución.
-                * "COLAB" o "LOCAL" para usar json_keyfile_colab.
-                * "COLAB_ENTERPRISE" o un project_id de GCP para usar json_keyfile_GCP_secret_id.
+            - (ver docstring completo en la versión original)
     
     Returns:
         None
@@ -529,9 +559,6 @@ def table_DF_to_various_targets(params: dict) -> None:
         ValueError: Si faltan parámetros obligatorios para identificar el destino o el DataFrame.
         RuntimeError: Si ocurre un error durante la escritura o transformación de los datos.
     """
-    import os
-    import io
-    import pandas as pd
     from google.oauth2.service_account import Credentials
 
     print("\n🔹🔹🔹 [START ▶️] Iniciando escritura de DataFrame en destino configurado 🔹🔹🔹\n", flush=True)
@@ -601,7 +628,7 @@ def table_DF_to_various_targets(params: dict) -> None:
         print("\n[LOAD [START ▶️]] Iniciando escritura en Google Sheets...", flush=True)
         import re
         from googleapiclient.discovery import build
-        import json
+
         mode = params.get("spreadsheet_target_table_overwrite_or_append", "overwrite").lower()
         spreadsheet_id_raw = params.get("spreadsheet_target_table_id")
         if "spreadsheets/d/" in spreadsheet_id_raw:
@@ -612,7 +639,7 @@ def table_DF_to_various_targets(params: dict) -> None:
                 raise ValueError("[VALIDATION [ERROR ❌]] No se pudo extraer el ID de la hoja de cálculo desde la URL proporcionada.")
         else:
             spreadsheet_id_str = spreadsheet_id_raw
-    
+
         worksheet_name_str = params.get("spreadsheet_target_table_worksheet_name")
         if not spreadsheet_id_str or not worksheet_name_str:
             raise ValueError("[VALIDATION [ERROR ❌]] Faltan 'spreadsheet_target_table_id' o 'spreadsheet_target_table_worksheet_name' en params.")
@@ -625,30 +652,13 @@ def table_DF_to_various_targets(params: dict) -> None:
             ini_env = params.get("ini_environment_identificated")
             if not ini_env:
                 raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en params.")
-            from google.oauth2.service_account import Credentials
-            if ini_env in ["COLAB", "LOCAL"]:
-                json_keyfile_colab_str = params.get("json_keyfile_colab")
-                if not json_keyfile_colab_str:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se requiere 'json_keyfile_colab'.")
-                print("[AUTHENTICATION [INFO ℹ️]] Entorno local/Colab detectado. Autenticando para Google Sheets mediante archivo JSON...", flush=True)
-                creds_local = Credentials.from_service_account_file(json_keyfile_colab_str, scopes=scope_list)
-            else:
-                json_keyfile_GCP_secret_id_str = params.get("json_keyfile_GCP_secret_id")
-                if not json_keyfile_GCP_secret_id_str:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se requiere 'json_keyfile_GCP_secret_id'.")
-                print("[AUTHENTICATION [INFO ℹ️]] Entorno GCP detectado. Autenticando para Google Sheets mediante Secret Manager...", flush=True)
-                from google.cloud import secretmanager
-                project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
-                if not project_id_env:
-                    raise ValueError("[VALIDATION [ERROR ❌]] No se encontró un project_id válido para autenticación en GCP.")
-                client_sm = secretmanager.SecretManagerServiceClient()
-                secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
-                response = client_sm.access_secret_version(name=secret_name)
-                secret_string = response.payload.data.decode("UTF-8")
-                secret_info = json.loads(secret_string)
-                creds_local = Credentials.from_service_account_info(secret_info, scopes=scope_list)
+            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
+
+            # Uso de _ini_authenticate_API para la autenticación en Google Sheets
+            creds = _ini_authenticate_API(params, project_id)
+            creds = creds.with_scopes(scope_list)
     
-            service = build('sheets', 'v4', credentials=creds_local)
+            service = build('sheets', 'v4', credentials=creds)
     
             if mode == "overwrite":
                 clear_body = {}
@@ -691,45 +701,27 @@ def table_DF_to_various_targets(params: dict) -> None:
     # ────────────────────────────── ESCRITURA – BIGQUERY ──────────────────────────────
     def _escribir_gbq(params: dict, df: pd.DataFrame) -> None:
         print("\n[LOAD [START ▶️]] Iniciando carga de DataFrame en BigQuery...", flush=True)
-        from google.cloud import bigquery
         import json
         scope_list = ["https://www.googleapis.com/auth/bigquery", "https://www.googleapis.com/auth/drive"]
-        mode = params.get("GBQ_target_table_overwrite_or_append", "overwrite").lower()
         ini_env = params.get("ini_environment_identificated")
         if not ini_env:
             raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en params.")
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
+
+        # Uso de _ini_authenticate_API para la autenticación en BigQuery
         from google.oauth2.service_account import Credentials
+        creds = _ini_authenticate_API(params, project_id)
+        creds = creds.with_scopes(scope_list)
+            
+        client_bq = bigquery.Client(credentials=creds, project=project_id)
+        gbq_table_str = params.get("GBQ_target_table_name")
+        if not gbq_table_str:
+            raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro 'GBQ_target_table_name' para BigQuery.")
+            
+        print(f"[LOAD [INFO ℹ️]] Cargando DataFrame en la tabla BigQuery: {gbq_table_str}...", flush=True)
         try:
-            if ini_env in ["COLAB", "LOCAL"]:
-                json_keyfile_colab_str = params.get("json_keyfile_colab")
-                if not json_keyfile_colab_str:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se requiere 'json_keyfile_colab'.")
-                print("[AUTHENTICATION [INFO ℹ️]] Entorno local/Colab detectado. Autenticando para BigQuery mediante archivo JSON...", flush=True)
-                creds_local = Credentials.from_service_account_file(json_keyfile_colab_str, scopes=scope_list)
-            else:
-                json_keyfile_GCP_secret_id_str = params.get("json_keyfile_GCP_secret_id")
-                if not json_keyfile_GCP_secret_id_str:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se requiere 'json_keyfile_GCP_secret_id'.")
-                print("[AUTHENTICATION [INFO ℹ️]] Entorno GCP detectado. Autenticando para BigQuery mediante Secret Manager...", flush=True)
-                from google.cloud import secretmanager
-                project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
-                if not project_id_env:
-                    raise ValueError("[VALIDATION [ERROR ❌]] No se encontró un project_id válido para autenticación en GCP.")
-                client_sm = secretmanager.SecretManagerServiceClient()
-                secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
-                response = client_sm.access_secret_version(name=secret_name)
-                secret_string = response.payload.data.decode("UTF-8")
-                secret_info = json.loads(secret_string)
-                creds_local = Credentials.from_service_account_info(secret_info, scopes=scope_list)
-            
-            project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT", ini_env)
-            client_bq = bigquery.Client(credentials=creds_local, project=project_id_env)
-            gbq_table_str = params.get("GBQ_target_table_name")
-            if not gbq_table_str:
-                raise ValueError("[VALIDATION [ERROR ❌]] Falta el parámetro 'GBQ_target_table_name' para BigQuery.")
-            
-            print(f"[LOAD [INFO ℹ️]] Cargando DataFrame en la tabla BigQuery: {gbq_table_str} con modo '{mode}'...", flush=True)
             job_config = bigquery.LoadJobConfig()
+            mode = params.get("GBQ_target_table_overwrite_or_append", "overwrite").lower()
             if mode == "overwrite":
                 job_config.write_disposition = bigquery.WriteDisposition.WRITE_TRUNCATE
             elif mode == "append":
@@ -740,58 +732,40 @@ def table_DF_to_various_targets(params: dict) -> None:
             job = client_bq.load_table_from_dataframe(df, gbq_table_str, job_config=job_config)
             job.result()
             print("[LOAD [SUCCESS ✅]] DataFrame cargado exitosamente en BigQuery.", flush=True)
-            print(f"[METRICS [INFO ℹ️]] Destino final: https://console.cloud.google.com/bigquery?project={project_id_env}&ws=!1m5!1m4!4m3!1s{gbq_table_str}", flush=True)
+            print(f"[METRICS [INFO ℹ️]] Destino final: https://console.cloud.google.com/bigquery?project={project_id}&ws=!1m5!1m4!4m3!1s{gbq_table_str}", flush=True)
         except Exception as e:
             raise RuntimeError(f"[LOAD [ERROR ❌]] Error al escribir en BigQuery: {e}")
 
     # ────────────────────────────── ESCRITURA – GOOGLE CLOUD STORAGE (GCS) ──────────────────────────────
     def _escribir_gcs(params: dict, df: pd.DataFrame) -> None:
         print("\n[LOAD [START ▶️]] Iniciando subida de DataFrame a Google Cloud Storage (GCS)...", flush=True)
-        from google.cloud import storage
         import json
         scope_list = ["https://www.googleapis.com/auth/devstorage.read_only"]
-        mode = params.get("GCS_target_table_overwrite_or_append", "overwrite").lower()
         ini_env = params.get("ini_environment_identificated")
         if not ini_env:
             raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en params.")
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
+
+        # Uso de _ini_authenticate_API para la autenticación en GCS
         from google.oauth2.service_account import Credentials
-        try:
-            if ini_env in ["COLAB", "LOCAL"]:
-                json_keyfile_colab_str = params.get("json_keyfile_colab")
-                if not json_keyfile_colab_str:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno local/Colab se requiere 'json_keyfile_colab'.")
-                print("[AUTHENTICATION [INFO ℹ️]] Entorno local/Colab detectado. Autenticando para GCS mediante archivo JSON...", flush=True)
-                creds_local = Credentials.from_service_account_file(json_keyfile_colab_str, scopes=scope_list)
-            else:
-                json_keyfile_GCP_secret_id_str = params.get("json_keyfile_GCP_secret_id")
-                if not json_keyfile_GCP_secret_id_str:
-                    raise ValueError("[AUTHENTICATION [ERROR ❌]] En entorno GCP se requiere 'json_keyfile_GCP_secret_id'.")
-                print("[AUTHENTICATION [INFO ℹ️]] Entorno GCP detectado. Autenticando para GCS mediante Secret Manager...", flush=True)
-                from google.cloud import secretmanager
-                project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT") if ini_env == "COLAB_ENTERPRISE" else ini_env
-                if not project_id_env:
-                    raise ValueError("[VALIDATION [ERROR ❌]] No se encontró un project_id válido para autenticación en GCP.")
-                client_sm = secretmanager.SecretManagerServiceClient()
-                secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
-                response = client_sm.access_secret_version(name=secret_name)
-                secret_string = response.payload.data.decode("UTF-8")
-                secret_info = json.loads(secret_string)
-                creds_local = Credentials.from_service_account_info(secret_info, scopes=scope_list)
+        creds = _ini_authenticate_API(params, project_id)
+        creds = creds.with_scopes(scope_list)
             
+        try:
             bucket_name_str = params.get("GCS_target_table_bucket_name")
             file_path_str = params.get("GCS_target_table_file_path")
             if not bucket_name_str or not file_path_str:
                 raise ValueError("[VALIDATION [ERROR ❌]] Falta 'GCS_target_table_bucket_name' o 'GCS_target_table_file_path' en params.")
-            client_storage = storage.Client(credentials=creds_local, project=os.environ.get("GOOGLE_CLOUD_PROJECT", ini_env))
+            from google.cloud import storage
+            client_storage = storage.Client(credentials=creds, project=project_id)
             bucket = client_storage.bucket(bucket_name_str)
             blob = bucket.blob(file_path_str)
             _, ext = os.path.splitext(file_path_str)
             ext = ext.lower()
-            print(f"[LOAD [INFO ℹ️]] Procesando DataFrame para archivo con extensión '{ext}' en modo '{mode}'...", flush=True)
+            print(f"[LOAD [INFO ℹ️]] Procesando DataFrame para archivo con extensión '{ext}'...", flush=True)
             
             if mode == "append" and blob.exists(client_storage):
                 blob_bytes = blob.download_as_string()
-                import io
                 if ext == '.csv':
                     df_existing = pd.read_csv(io.StringIO(blob_bytes.decode('utf-8')))
                 elif ext == '.tsv':
@@ -819,8 +793,7 @@ def table_DF_to_various_targets(params: dict) -> None:
             print(f"[LOAD [INFO ℹ️]] Subiendo archivo '{file_path_str}' al bucket '{bucket_name_str}'...", flush=True)
             blob.upload_from_string(file_bytes, content_type=content_type_str)
             print("[LOAD [SUCCESS ✅]] Archivo subido exitosamente a GCS.", flush=True)
-            project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-            print(f"[METRICS [INFO ℹ️]] Destino final: https://console.cloud.google.com/storage/browser/{bucket_name_str}?project={project_id_env}", flush=True)
+            print(f"[METRICS [INFO ℹ️]] Destino final: https://console.cloud.google.com/storage/browser/{bucket_name_str}?project={project_id}", flush=True)
         except Exception as e:
             raise RuntimeError(f"[LOAD [ERROR ❌]] Error al escribir en GCS: {e}")
 
