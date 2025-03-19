@@ -9,6 +9,72 @@ import re
 import time
 import os
 
+# ----------------------------------------------------------------------------
+# _ini_authenticate_API()
+# ----------------------------------------------------------------------------
+def _ini_authenticate_API(config: dict, project_id: str):
+    """
+    Autentica utilizando el diccionario común en config.
+    
+    Dependiendo de 'ini_environment_identificated' se utiliza:
+      - "LOCAL": usa la key "json_keyfile_local"
+      - "COLAB": usa la key "json_keyfile_colab"
+      - Para GCP (por ejemplo, "COLAB_ENTERPRISE" o un project_id): usa "json_keyfile_GCP_secret_id"
+      
+    Args:
+      config (dict): Diccionario de configuración.
+      project_id (str): ID del proyecto GCP (se usa en la autenticación GCP).
+      
+    Returns:
+      Credentials: Objeto de credenciales para la autenticación.
+    """
+    from google.oauth2 import service_account
+
+    env = config.get("ini_environment_identificated", "COLAB")
+    if env == "LOCAL":
+        json_path = config.get("json_keyfile_local")
+        if not json_path:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_local' en config para entorno LOCAL.")
+        credentials = service_account.Credentials.from_service_account_file(json_path)
+    elif env == "COLAB":
+        json_path = config.get("json_keyfile_colab")
+        if not json_path:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_colab' en config para entorno COLAB.")
+        credentials = service_account.Credentials.from_service_account_file(json_path)
+    else:
+        # Asumimos que para GCP (COLAB_ENTERPRISE o si se pasa un project_id distinto) se usa Secret Manager.
+        secret_id = config.get("json_keyfile_GCP_secret_id")
+        if not secret_id:
+            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_GCP_secret_id' en config para entornos GCP.")
+        from google.cloud import secretmanager
+        client_sm = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        response = client_sm.access_secret_version(name=secret_name)
+        secret_str = response.payload.data.decode("UTF-8")
+        import json
+        secret_info = json.loads(secret_str)
+        credentials = service_account.Credentials.from_service_account_info(secret_info)
+    return credentials
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # __________________________________________________________________________________________________________________________________________________________
 # GBQ_tables_schema_df
 # __________________________________________________________________________________________________________________________________________________________
@@ -18,7 +84,9 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
     añadiendo al final las columnas 'fecha_actualizacion_GBQ' (fecha en la que la tabla fue creada o modificada)
     y 'fecha_actualizacion_df' (fecha en la que se creó el DataFrame).
 
-    La autenticación ahora se realiza a partir de la key 'ini_environment_identificated' en el diccionario config.
+    La autenticación se realiza ahora mediante la función _ini_authenticate_API(), la cual utiliza el valor de
+    'ini_environment_identificated' y las keys de configuración correspondientes ('json_keyfile_colab' para entornos
+    LOCAL/COLAB o 'json_keyfile_GCP_secret_id' para entornos GCP).
 
     Args:
         config (dict):
@@ -52,64 +120,31 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
         ValueError: Si faltan parámetros obligatorios o se produce un error en la autenticación.
         RuntimeError: Si ocurre un error durante la extracción o transformación de datos.
     """
-    # ────────────────────────────── Importaciones Locales ──────────────────────────────
     import os
     import json
     from google.cloud import bigquery
     import pandas as pd
-    from google.oauth2.service_account import Credentials
 
-    # ────────────────────────────── INICIO DEL PROCESO ──────────────────────────────
     print("\n🔹🔹🔹 [START ▶️] Inicio del proceso de extracción del esquema de BigQuery 🔹🔹🔹\n", flush=True)
 
-    # ────────────────────────────── AUTENTICACIÓN CON NUEVA KEY ──────────────────────────────
-    # Obtener el valor de 'ini_environment_identificated' del diccionario de configuración.
+    # ────────────────────────────── AUTENTICACIÓN CON _ini_authenticate_API() ──────────────────────────────
     ini_env = config.get("ini_environment_identificated")
     if not ini_env:
         raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en config.")
-
-    # Si el entorno es 'COLAB' o 'LOCAL', se utiliza la autenticación local/Colab.
-    if ini_env in ["COLAB", "LOCAL"]:
-        json_keyfile_colab_str = config.get("json_keyfile_colab")
-        if not json_keyfile_colab_str:
-            raise ValueError("[VALIDATION [ERROR ❌]] En entornos local/Colab se debe proporcionar 'json_keyfile_colab' en config.")
-        print("[AUTHENTICATION [START ▶️]] Iniciando autenticación en entorno local/Colab mediante JSON de credenciales...", flush=True)
-        try:
-            creds = Credentials.from_service_account_file(json_keyfile_colab_str)
-            print("[AUTHENTICATION [SUCCESS ✅]] Autenticación en entorno local/Colab completada.", flush=True)
-        except Exception as e:
-            raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación en entorno local/Colab: {e}")
-    else:
-        # Para cualquier otro valor (ej. 'COLAB_ENTERPRISE' o un project_id de GCP), se asume autenticación en GCP.
-        json_keyfile_GCP_secret_id_str = config.get("json_keyfile_GCP_secret_id")
-        if not json_keyfile_GCP_secret_id_str:
-            raise ValueError("[VALIDATION [ERROR ❌]] En entornos GCP se debe proporcionar 'json_keyfile_GCP_secret_id' en config.")
-        print("[AUTHENTICATION [START ▶️]] Iniciando autenticación en entorno GCP mediante Secret Manager...", flush=True)
-        from google.cloud import secretmanager
-        # Si el entorno es 'COLAB_ENTERPRISE', se intenta obtener el project_id de la variable de entorno;
-        # en caso contrario, se asume que 'ini_environment_identificated' contiene el project_id.
-        if ini_env == "COLAB_ENTERPRISE":
-            project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
-        else:
-            project_id_env = ini_env
-        if not project_id_env:
-            raise ValueError("[VALIDATION [ERROR ❌]] No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT' para autenticación en GCP.")
-        try:
-            client_sm = secretmanager.SecretManagerServiceClient()
-            secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
-            response = client_sm.access_secret_version(name=secret_name)
-            secret_string = response.payload.data.decode("UTF-8")
-            secret_info = json.loads(secret_string)
-            creds = Credentials.from_service_account_info(secret_info)
-            print(f"[AUTHENTICATION [SUCCESS ✅]] Autenticación en entorno GCP completada. (Secret Manager: {json_keyfile_GCP_secret_id_str})", flush=True)
-        except Exception as e:
-            raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación en GCP: {e}")
-
-    # ────────────────────────────── VALIDACIÓN DE PARÁMETROS ──────────────────────────────
+    
     project_id_str = config.get('project_id')
     if not project_id_str:
         raise ValueError("[VALIDATION [ERROR ❌]] El 'project_id' es un argumento requerido en la configuración.")
     print(f"[METRICS [INFO ℹ️]] Proyecto de BigQuery: {project_id_str}", flush=True)
+    
+    print("[AUTHENTICATION [START ▶️]] Iniciando autenticación utilizando _ini_authenticate_API()...", flush=True)
+    try:
+        creds = _ini_authenticate_API(config, project_id_str)
+        print("[AUTHENTICATION [SUCCESS ✅]] Autenticación completada.", flush=True)
+    except Exception as e:
+        raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación: {e}")
+
+    # ────────────────────────────── PARÁMETROS DE CONSULTA ──────────────────────────────
     datasets_incluidos_list = config.get('datasets', None)
     include_tables_bool = config.get('include_tables', True)
 
@@ -230,6 +265,8 @@ def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
 
 
 
+
+
 # __________________________________________________________________________________________________________________________________________________________
 # GCS_tables_schema_df
 # __________________________________________________________________________________________________________________________________________________________
@@ -239,7 +276,7 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
       - Buckets de Google Cloud Storage (GCS)
       - Objetos (archivos) de cada bucket (si `include_objects` es True)
 
-    Incluye, entre otras, las siguientes propiedades a nivel de bucket:
+    Se incluyen, entre otras, las siguientes propiedades a nivel de bucket:
       - fecha_creacion_bucket
       - tipo_ubicacion (REGIONAL, MULTI_REGIONAL, etc.)
       - ubicacion (p.e. us-central1, EU, etc.)
@@ -261,10 +298,13 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
       - object_name
       - content_type
       - size_mb
-      - fecha_actualizacion_GCS (time_created / updated)
+      - fecha_actualizacion_GCS (time_created o updated)
       - etc.
 
-    Se añade 'fecha_actualizacion_df' (fecha en la que se crea este DataFrame) para todas las filas.
+    Se añade 'fecha_actualizacion_df' (fecha en la que se creó el DataFrame) para todas las filas.
+
+    La autenticación se realiza mediante _ini_authenticate_API(), utilizando el valor de
+    'ini_environment_identificated' y las keys correspondientes ('json_keyfile_colab' o 'json_keyfile_GCP_secret_id').
 
     Args:
         config (dict):
@@ -273,77 +313,45 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
               se listan todos los buckets disponibles en el proyecto.
             - include_objects (bool) [opcional]: Si True, detalla también los objetos en cada bucket. Por defecto True.
             - ini_environment_identificated (str, requerido): Valor que indica el entorno de ejecución detectado.
+              Puede ser:
                 * 'COLAB' o 'LOCAL' para entornos local/Colab (se usará json_keyfile_colab).
                 * 'COLAB_ENTERPRISE' o el ID del proyecto de GCP para entornos GCP (se usará json_keyfile_GCP_secret_id).
             - json_keyfile_GCP_secret_id (str, requerido en entornos GCP): ID del secreto en Secret Manager que contiene las credenciales.
-            - json_keyfile_colab (str, requerido fuera de GCP): Ruta local al JSON de credenciales.
-    
+            - json_keyfile_colab (str, requerido en entornos local/Colab): Ruta local al JSON de credenciales.
+
     Returns:
         pd.DataFrame:
-            Con columnas a nivel de bucket y, si procede, de objetos.
+            DataFrame con columnas a nivel de bucket y, si procede, de objetos.
 
     Raises:
-        ValueError: Si faltan parámetros obligatorios o hay errores en la autenticación.
+        ValueError: Si faltan parámetros obligatorios o se produce un error en la autenticación.
         RuntimeError: Si ocurre algún problema durante la extracción o transformación.
     """
-    # ────────────────────────────── Importaciones ──────────────────────────────
     import os
     import json
     import pandas as pd
     from google.cloud import storage
-    from google.oauth2.service_account import Credentials
 
     print("\n🔹🔹🔹 [START ▶️] Inicio del proceso de extracción extendida de GCS 🔹🔹🔹\n", flush=True)
 
-    # ────────────────────────────── AUTENTICACIÓN CON NUEVA KEY ──────────────────────────────
-    # Obtener la key 'ini_environment_identificated' del diccionario de configuración
+    # ────────────────────────────── AUTENTICACIÓN CON _ini_authenticate_API() ──────────────────────────────
     ini_env = config.get("ini_environment_identificated")
     if not ini_env:
         raise ValueError("[VALIDATION [ERROR ❌]] Falta la key 'ini_environment_identificated' en config.")
-
-    # Si el entorno es 'COLAB' o 'LOCAL', se utiliza autenticación local/Colab mediante archivo JSON
-    if ini_env in ["COLAB", "LOCAL"]:
-        json_keyfile_colab_str = config.get("json_keyfile_colab")
-        if not json_keyfile_colab_str:
-            raise ValueError("[VALIDATION [ERROR ❌]] En entornos local/Colab se debe proporcionar 'json_keyfile_colab' en config.")
-        print("[AUTHENTICATION [START ▶️]] Autenticación en entorno local/Colab mediante JSON de credenciales...", flush=True)
-        try:
-            creds = Credentials.from_service_account_file(json_keyfile_colab_str)
-            print("[AUTHENTICATION [SUCCESS ✅]] Autenticación local/Colab completada.", flush=True)
-        except Exception as e:
-            raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación local/Colab: {e}")
-    else:
-        # Para cualquier otro valor (ej. 'COLAB_ENTERPRISE' o un project_id de GCP), se utiliza autenticación en GCP mediante Secret Manager.
-        json_keyfile_GCP_secret_id_str = config.get("json_keyfile_GCP_secret_id")
-        if not json_keyfile_GCP_secret_id_str:
-            raise ValueError("[VALIDATION [ERROR ❌]] En entornos GCP se debe proporcionar 'json_keyfile_GCP_secret_id' en config.")
-        print("[AUTHENTICATION [START ▶️]] Autenticación en GCP mediante Secret Manager...", flush=True)
-        from google.cloud import secretmanager
-        # Si el entorno es 'COLAB_ENTERPRISE', se obtiene el project_id desde la variable de entorno;
-        # de lo contrario, se asume que 'ini_environment_identificated' contiene el project_id.
-        if ini_env == "COLAB_ENTERPRISE":
-            project_id_env = os.environ.get("GOOGLE_CLOUD_PROJECT")
-        else:
-            project_id_env = ini_env
-        if not project_id_env:
-            raise ValueError("[VALIDATION [ERROR ❌]] No se encontró la variable de entorno 'GOOGLE_CLOUD_PROJECT' o 'ini_environment_identificated' no es válida para autenticación en GCP.")
-        try:
-            client_sm = secretmanager.SecretManagerServiceClient()
-            secret_name = f"projects/{project_id_env}/secrets/{json_keyfile_GCP_secret_id_str}/versions/latest"
-            response = client_sm.access_secret_version(name=secret_name)
-            secret_string = response.payload.data.decode("UTF-8")
-            secret_info = json.loads(secret_string)
-            creds = Credentials.from_service_account_info(secret_info)
-            print(f"[AUTHENTICATION [SUCCESS ✅]] Autenticación GCP completada. (Secret: {json_keyfile_GCP_secret_id_str})", flush=True)
-        except Exception as e:
-            raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación en GCP: {e}")
-
-    # ────────────────────────────── VALIDACIÓN DE PARÁMETROS ──────────────────────────────
+    
     project_id_str = config.get('project_id')
     if not project_id_str:
         raise ValueError("[VALIDATION [ERROR ❌]] 'project_id' es obligatorio en la configuración.")
     print(f"[METRICS [INFO ℹ️]] Proyecto de GCP: {project_id_str}", flush=True)
+    
+    print("[AUTHENTICATION [START ▶️]] Iniciando autenticación utilizando _ini_authenticate_API()...", flush=True)
+    try:
+        creds = _ini_authenticate_API(config, project_id_str)
+        print("[AUTHENTICATION [SUCCESS ✅]] Autenticación completada.", flush=True)
+    except Exception as e:
+        raise ValueError(f"[AUTHENTICATION [ERROR ❌]] Error durante la autenticación: {e}")
 
+    # ────────────────────────────── PARÁMETROS DE CONSULTA ──────────────────────────────
     buckets_incluidos_list = config.get('buckets', None)
     include_objects_bool = config.get('include_objects', True)
 
@@ -530,4 +538,5 @@ def GCS_tables_schema_df(config: dict) -> pd.DataFrame:
 
     print("\n🔹🔹🔹 [END [FINISHED ✅]] Esquema extendido de GCS obtenido correctamente. 🔹🔹🔹\n", flush=True)
     return df_gcs
+
 
