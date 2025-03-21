@@ -8,6 +8,7 @@ Este manual ofrece una guía para escribir funciones en Python de forma **clara,
 
 - **Propósito:** Establecer directrices para la creación de funciones que sean fáciles de mantener, reutilizar y depurar.
 - **Enfoque:** Código limpio, validaciones tempranas, mensajes de log estandarizados y organización modular.
+- **Eficiencia:** Revisa la función e indica en tus respuestas si hay alguna funcionalidad sin uso o redundante, o keys de config que no tengan uso en la función.
 
 ---
 
