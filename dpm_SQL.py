@@ -436,7 +436,11 @@ def SQL_generate_cleaning_str(params: dict) -> str:
     """
     Genera una sentencia SQL para crear o sobrescribir una tabla de staging aplicando mapeos a los nombres de campos,
     filtros por rango de fechas, exclusión de registros por palabras clave y limpieza de espacios.
-
+    
+    Adicionalmente, si se activa, elimina registros duplicados (fusionados) en base a los siguientes campos:
+      - merged_object_ids_field_name: Campo que contiene uno o varios IDs fusionados, separados por un delimitador.
+      - merged_calculated_vids_field_name: Campo que contiene pares ID:VID, separados por delimitadores.
+    
     Parámetros en params:
       - table_source (str): Tabla fuente.
       - table_destination (str): Tabla destino.
@@ -450,11 +454,20 @@ def SQL_generate_cleaning_str(params: dict) -> str:
       - exclude_records_by_keywords_fields (list, opcional)
       - exclude_records_by_keywords_words (list, opcional)
       - fields_to_trim (list, opcional)
-
+      
+      -- Nuevas keys para eliminación de duplicados:
+      - remove_duplicates_bool (bool): Indica si se debe aplicar eliminación de duplicados.
+      - merged_object_ids_field_name (str): Campo que contiene los IDs fusionados.
+      - merged_object_ids_delimiter (str, opcional, default ";")
+      - merged_calculated_vids_field_name (str): Campo que contiene los pares ID:VID.
+      - merged_calculated_vids_pair_delimiter (str, opcional, default ";")
+      - merged_calculated_vids_value_delimiter (str, opcional, default ":")
+    
     Retorna:
         str: Sentencia SQL generada.
     """
     print("[START ▶️] Generando SQL de limpieza...", flush=True)
+    
     table_source = params.get("table_source")
     table_destination = params.get("table_destination")
     fields_mapped_df = params.get("fields_mapped_df")
@@ -467,18 +480,28 @@ def SQL_generate_cleaning_str(params: dict) -> str:
     exclude_by_keywords_fields = params.get("exclude_records_by_keywords_fields", [])
     exclude_by_keywords_words = params.get("exclude_records_by_keywords_words", [])
     fields_to_trim = params.get("fields_to_trim", [])
-
+    
+    # Nuevas keys para eliminación de duplicados
+    remove_duplicates_bool = params.get("remove_duplicates_bool", False)
+    merged_object_ids_field = params.get("merged_object_ids_field_name", "")
+    merged_calculated_vids_field = params.get("merged_calculated_vids_field_name", "")
+    merged_object_ids_delimiter = params.get("merged_object_ids_delimiter", ";")
+    merged_calculated_vids_pair_delimiter = params.get("merged_calculated_vids_pair_delimiter", ";")
+    merged_calculated_vids_value_delimiter = params.get("merged_calculated_vids_value_delimiter", ":")
+    
+    # Generar cláusulas SELECT mapeadas y con limpieza de espacios si corresponde
     select_clauses = []
     for _, row in fields_mapped_df.iterrows():
         campo_origen = row['Campo Original']
-        campo_destino = f"{fields_destination_prefix}{row['Campo Formateado']}" if fields_mapped_use else f"{fields_destination_prefix}{campo_origen}"
+        alias = f"{fields_destination_prefix}{row['Campo Formateado']}" if fields_mapped_use else f"{fields_destination_prefix}{campo_origen}"
         if campo_origen in fields_to_trim:
-            select_clause = f"TRIM(REPLACE(`{campo_origen}`, '  ', ' ')) AS `{campo_destino}`"
+            select_clause = f"TRIM(REPLACE(`{campo_origen}`, '  ', ' ')) AS `{alias}`"
         else:
-            select_clause = f"`{campo_origen}` AS `{campo_destino}`"
+            select_clause = f"`{campo_origen}` AS `{alias}`"
         select_clauses.append(select_clause)
     select_part = ",\n  ".join(select_clauses)
-
+    
+    # Generar cláusula WHERE con filtros de fechas y palabras clave
     where_filters = []
     if exclude_by_date_bool and exclude_by_date_field:
         date_from = exclude_by_date_range.get("from", "")
@@ -491,16 +514,47 @@ def SQL_generate_cleaning_str(params: dict) -> str:
         for field in exclude_by_keywords_fields:
             where_filters.extend([f"`{field}` NOT LIKE '%{word}%'" for word in exclude_by_keywords_words])
     where_clause = " AND ".join(where_filters) if where_filters else "TRUE"
-    sql_script = (
-        f"CREATE OR REPLACE TABLE `{table_destination}` AS\n"
+    
+    # Consulta base sin eliminación de duplicados
+    base_query = (
         f"SELECT\n"
         f"  {select_part}\n"
         f"FROM `{table_source}`\n"
         f"WHERE {where_clause}\n"
-        f";"
     )
+    
+    # Si se activa la eliminación de duplicados, envolver la consulta en una CTE
+    if remove_duplicates_bool and merged_object_ids_field and merged_calculated_vids_field:
+        # Actualización: Usar el id como partición cuando no haya valor en el campo de fusión.
+        dedup_query = (
+            f"WITH dedup AS (\n"
+            f"  SELECT\n"
+            f"    {select_part},\n"
+            f"    ROW_NUMBER() OVER (\n"
+            f"      PARTITION BY CASE\n"
+            f"        WHEN `{merged_object_ids_field}` IS NULL OR `{merged_object_ids_field}` = '' THEN CAST(`id` AS STRING)\n"
+            f"        ELSE SPLIT(`{merged_object_ids_field}`, '{merged_object_ids_delimiter}')[OFFSET(0)]\n"
+            f"      END\n"
+            f"      ORDER BY IF(`{merged_calculated_vids_field}` IS NOT NULL AND `{merged_calculated_vids_field}` <> '', 0, 1)\n"
+            f"    ) AS rn\n"
+            f"  FROM `{table_source}`\n"
+            f"  WHERE {where_clause}\n"
+            f")\n"
+            f"SELECT * EXCEPT(rn) FROM dedup\n"
+            f"WHERE rn = 1\n"
+            f";"
+        )
+        sql_script = f"CREATE OR REPLACE TABLE `{table_destination}` AS\n{dedup_query}"
+    else:
+        sql_script = (
+            f"CREATE OR REPLACE TABLE `{table_destination}` AS\n"
+            f"{base_query}"
+            f";"
+        )
+    
     print("[END [FINISHED ✅]] SQL de limpieza generado.\n", flush=True)
     return sql_script
+
 
 
 
