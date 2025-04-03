@@ -137,6 +137,7 @@ Ejemplos:
 - **STATE:** Estado específico del proceso con etiquetas estándar adaptadas al contexto:
 
   - **START ▶️:** Indica el inicio del proceso.
+  - **PROCESSING 🔄:** Actualmente procesando.
   - **INFO ℹ️:** Información intermedia relevante o puntual.
   - **SUCCESS ✅ / FINISHED ✅:** Finalización exitosa.
   - **WARNING ⚠️:** Situaciones que requieren atención sin interrumpir el flujo.
@@ -284,47 +285,59 @@ def function_example_str(config: dict) -> str:
 
     print("🔹🔹🔹 [START ▶️] Proceso de lectura y procesamiento de archivo 🔹🔹🔹", flush=True)
 
-    # Intentar leer el archivo
+    # Subfunción para leer el archivo
+    def _read_file(path: str) -> list:
+        try:
+            with open(path, 'r', encoding='utf-8') as file:
+                lines = file.readlines()
+            print(f"[FILE READ SUCCESS ✅] Archivo '{path}' leído correctamente. Total líneas: {len(lines)}", flush=True)
+            return lines
+        except Exception as e:
+            raise ValueError(f"[FILE PROCESS ERROR ❌] No se pudo abrir el archivo: {e}")
+
+    # Subfunción para procesar las líneas del archivo
+    def _process_file(lines: list, config: dict) -> (list, int):
+        # Función auxiliar interna para limpiar cada línea
+        def _clean_line_str(line: str) -> str:
+            return line.strip()
+
+        processed_lines_list = []
+        total_lines_int = len(lines)
+        for idx, line in enumerate(lines):
+            cleaned_line_str = _clean_line_str(line)
+            if cleaned_line_str:  # Solo considerar líneas no vacías
+                processed_lines_list.append(cleaned_line_str)
+            # Informar progreso cada 10% o cada cierto número de líneas
+            if total_lines_int > 0 and (idx + 1) % max(1, total_lines_int // 10) == 0:
+                progreso_int = int(((idx + 1) / total_lines_int) * 100)
+                print(f"[PROCESSING 🔄] Progreso: {progreso_int}% completado", flush=True)
+
+        # Aplicar transformación opcional: conversión a mayúsculas
+        if config.get("uppercase", False):
+            processed_lines_list = [line.upper() for line in processed_lines_list]
+            print("[PROCESSING INFO ℹ️] Conversión a mayúsculas aplicada a las líneas procesadas.", flush=True)
+
+        return processed_lines_list, total_lines_int
+
+    # Llamada a la subfunción para leer el archivo
+    lines_list = _read_file(file_path_str)
+    # Llamada a la subfunción para procesar las líneas del archivo
+    processed_lines_list, total_lines_int = _process_file(lines_list, config)
+
+    # Bloque try/except para volcar el resultado con información detallada del proceso
     try:
-        with open(file_path_str, 'r', encoding='utf-8') as file:
-            lines_list = file.readlines()
-        print(f"[FILE READ SUCCESS ✅] Archivo '{file_path_str}' leído correctamente. Total líneas: {len(lines_list)}", flush=True)
+        summary_str = (
+            f"Resumen del archivo:\n"
+            f"- Ruta: {file_path_str}\n"
+            f"- Total líneas leídas: {total_lines_int}\n"
+            f"- Líneas procesadas (no vacías): {len(processed_lines_list)}\n"
+        )
+        print("🔹🔹🔹 [FILE PROCESS FINISHED ✅] Procesamiento completado. 🔹🔹🔹", flush=True)
     except Exception as e:
-        raise ValueError(f"[FILE PROCESS ERROR ❌] No se pudo abrir el archivo: {e}")
+        print(f"[SUMMARY ERROR ❌] Ocurrió un error al generar el resumen: {e}", flush=True)
+        raise e
 
-    # Función auxiliar interna para limpiar cada línea
-    def _clean_line_str(line: str) -> str:
-        """
-        Limpia una línea eliminando espacios en blanco y saltos de línea.
-        """
-        return line.strip()
-
-    # Procesamiento de cada línea del archivo
-    processed_lines_list = []
-    total_lines_int = len(lines_list)
-    for idx, line in enumerate(lines_list):
-        cleaned_line_str = _clean_line_str(line)
-        if cleaned_line_str:  # Solo considerar líneas no vacías
-            processed_lines_list.append(cleaned_line_str)
-        # Informar progreso cada 10% o cada cierto número de líneas
-        if total_lines_int > 0 and (idx + 1) % max(1, total_lines_int // 10) == 0:
-            progreso_int = int(((idx + 1) / total_lines_int) * 100)
-            print(f"[PROCESSING 🔄] Progreso: {progreso_int}% completado", flush=True)
-
-    # Aplicar transformación opcional: conversión a mayúsculas
-    if config.get("uppercase", False):
-        processed_lines_list = [line.upper() for line in processed_lines_list]
-        print("[PROCESSING INFO ℹ️] Conversión a mayúsculas aplicada a las líneas procesadas.", flush=True)
-
-    # Generar resumen del procesamiento
-    summary_str = (
-        f"Resumen del archivo:\n"
-        f"- Ruta: {file_path_str}\n"
-        f"- Total líneas leídas: {total_lines_int}\n"
-        f"- Líneas procesadas (no vacías): {len(processed_lines_list)}\n"
-    )
-
-    print("🔹🔹🔹 [FILE PROCESS FINISHED ✅] Procesamiento completado. 🔹🔹🔹", flush=True)
     return summary_str
+
 
 ```
