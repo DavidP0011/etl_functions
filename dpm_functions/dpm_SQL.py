@@ -1,21 +1,4 @@
-from google.cloud import bigquery
-import pandas as pd
-import pandas_gbq
-from googletrans import Translator  # Versión 4.0.0-rc1
-import unicodedata
-import re
-import pycountry
-from rapidfuzz import process, fuzz
-import time
-import os
-from google.oauth2 import service_account
-
-
-
 # __________________________________________________________________________________________________________________________________________________________
-# _ini_authenticate_API
-# __________________________________________________________________________________________________________________________________________________________
-# Función auxiliar común para autenticación según el diccionario de configuración.
 def _ini_authenticate_API(config: dict, project_id: str):
     """
     Autentica utilizando el diccionario común en config.
@@ -32,6 +15,7 @@ def _ini_authenticate_API(config: dict, project_id: str):
     Returns:
       Credentials: Objeto de credenciales para la autenticación.
     """
+    from google.oauth2 import service_account
     env = config.get("ini_environment_identificated", "COLAB")
     if env == "LOCAL":
         json_path = config.get("json_keyfile_local")
@@ -44,7 +28,6 @@ def _ini_authenticate_API(config: dict, project_id: str):
             raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_colab' en config para entorno COLAB.")
         credentials = service_account.Credentials.from_service_account_file(json_path)
     else:
-        # Asumimos que para GCP (COLAB_ENTERPRISE o si se pasa un project_id distinto) se usa Secret Manager.
         secret_id = config.get("json_keyfile_GCP_secret_id")
         if not secret_id:
             raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_GCP_secret_id' en config para entornos GCP.")
@@ -57,22 +40,6 @@ def _ini_authenticate_API(config: dict, project_id: str):
         secret_info = json.loads(secret_str)
         credentials = service_account.Credentials.from_service_account_info(secret_info)
     return credentials
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -104,6 +71,8 @@ def GBQ_execute_SQL(config: dict) -> None:
         None
     """
     print("[START ▶️] Ejecución de script SQL en BigQuery", flush=True)
+    import time
+    from google.cloud import bigquery
 
     def _validate_parameters(cfg: dict) -> tuple:
         project_id = cfg.get('GCP_project_id')
@@ -178,6 +147,8 @@ def GBQ_execute_SQL(config: dict) -> None:
 
 
 
+
+
 # __________________________________________________________________________________________________________________________________________________________
 def SQL_generate_academic_date_str(params) -> str:
     """
@@ -193,6 +164,7 @@ def SQL_generate_academic_date_str(params) -> str:
     Retorna:
         str: Sentencia SQL generada.
     """
+    # No se requieren imports adicionales para esta función.
     print("[START ▶️] Generando SQL para fechas académicas/fiscales...", flush=True)
     table_source = params["table_source"]
     table_destination = params["table_destination"]
@@ -249,20 +221,6 @@ def SQL_generate_academic_date_str(params) -> str:
     print("[END [FINISHED ✅]] SQL generado exitosamente.\n", flush=True)
     return sql_script
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # __________________________________________________________________________________________________________________________________________________________
 def SQL_generate_BI_view_str(params: dict) -> str:
     """
@@ -283,6 +241,8 @@ def SQL_generate_BI_view_str(params: dict) -> str:
     Retorna:
         str: Sentencia SQL generada.
     """
+    # Importar pandas para validar el DataFrame
+    import pandas as pd
     print("[START ▶️] Generando vista BI...", flush=True)
     table_source = params.get("table_source")
     table_destination = params.get("table_destination")
@@ -332,13 +292,6 @@ def SQL_generate_BI_view_str(params: dict) -> str:
     )
     print("[END [FINISHED ✅]] Vista BI generada.\n", flush=True)
     return sql_script
-
-
-
-
-
-
-
 
 
 
@@ -430,7 +383,6 @@ def SQL_generate_CPL_to_contacts_str(params: dict) -> str:
 
 
 
-
 # __________________________________________________________________________________________________________________________________________________________
 def SQL_generate_cleaning_str(params: dict) -> str:
     """
@@ -466,6 +418,9 @@ def SQL_generate_cleaning_str(params: dict) -> str:
     Retorna:
         str: Sentencia SQL generada.
     """
+    # Importar librerías necesarias para procesamiento de cadenas y expresiones regulares
+    import unicodedata
+    import re
     print("[START ▶️] Generando SQL de limpieza...", flush=True)
     
     table_source = params.get("table_source")
@@ -481,7 +436,6 @@ def SQL_generate_cleaning_str(params: dict) -> str:
     exclude_by_keywords_words = params.get("exclude_records_by_keywords_words", [])
     fields_to_trim = params.get("fields_to_trim", [])
     
-    # Nuevas keys para eliminación de duplicados
     remove_duplicates_bool = params.get("remove_duplicates_bool", False)
     merged_object_ids_field = params.get("merged_object_ids_field_name", "")
     merged_calculated_vids_field = params.get("merged_calculated_vids_field_name", "")
@@ -489,7 +443,7 @@ def SQL_generate_cleaning_str(params: dict) -> str:
     merged_calculated_vids_pair_delimiter = params.get("merged_calculated_vids_pair_delimiter", ";")
     merged_calculated_vids_value_delimiter = params.get("merged_calculated_vids_value_delimiter", ":")
     
-    # Generar cláusulas SELECT mapeadas y con limpieza de espacios si corresponde
+    # Generar cláusulas SELECT con limpieza de espacios
     select_clauses = []
     for _, row in fields_mapped_df.iterrows():
         campo_origen = row['Campo Original']
@@ -501,7 +455,6 @@ def SQL_generate_cleaning_str(params: dict) -> str:
         select_clauses.append(select_clause)
     select_part = ",\n  ".join(select_clauses)
     
-    # Generar cláusula WHERE con filtros de fechas y palabras clave
     where_filters = []
     if exclude_by_date_bool and exclude_by_date_field:
         date_from = exclude_by_date_range.get("from", "")
@@ -515,7 +468,6 @@ def SQL_generate_cleaning_str(params: dict) -> str:
             where_filters.extend([f"`{field}` NOT LIKE '%{word}%'" for word in exclude_by_keywords_words])
     where_clause = " AND ".join(where_filters) if where_filters else "TRUE"
     
-    # Consulta base sin eliminación de duplicados
     base_query = (
         f"SELECT\n"
         f"  {select_part}\n"
@@ -523,9 +475,7 @@ def SQL_generate_cleaning_str(params: dict) -> str:
         f"WHERE {where_clause}\n"
     )
     
-    # Si se activa la eliminación de duplicados, envolver la consulta en una CTE
     if remove_duplicates_bool and merged_object_ids_field and merged_calculated_vids_field:
-        # Actualización: Usar el id como partición cuando no haya valor en el campo de fusión.
         dedup_query = (
             f"WITH dedup AS (\n"
             f"  SELECT\n"
@@ -554,10 +504,6 @@ def SQL_generate_cleaning_str(params: dict) -> str:
     
     print("[END [FINISHED ✅]] SQL de limpieza generado.\n", flush=True)
     return sql_script
-
-
-
-
 
 
 
@@ -605,11 +551,12 @@ def SQL_generate_country_from_phone(config: dict) -> str:
         str: Script SQL final (incluye JOIN y, opcionalmente, DROP TABLE).
     """
     print("[START ▶️] Procesando números telefónicos para determinar países...", flush=True)
+    # Importar las librerías necesarias
     import math
     import pandas as pd
-    from google.cloud import bigquery
     import pandas_gbq
-
+    from google.cloud import bigquery
+    
     # Parámetros de configuración para contactos
     table_source = config["source_table"]
     source_phone_field = config["source_contact_phone_field"]
@@ -618,10 +565,8 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     # Parámetros de llamadas
     call_table = config["source_engagement_call_table"]
     call_match_field = config["source_engagement_call_id_match_contact_field_name"]
-    # El nombre original del campo se usa para la extracción, pero en el DataFrame se asigna el alias "call_status"
     call_status_field = config["source_engagement_call_status_field_name"]
     call_status_values_list = config["source_engagement_call_status_values_list"]
-    # Similar para el campo de fecha: en la extracción se usa un alias
     call_createdate_field = config["source_engagement_createdate_field_name"]
     
     # Parámetros de la tabla destino
@@ -632,13 +577,11 @@ def SQL_generate_country_from_phone(config: dict) -> str:
 
     default_prefix = config.get("default_phone_prefix", "+34")
     
-    # Autenticación
     print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
     project = table_source.split(".")[0]
     creds = _ini_authenticate_API(config, project)
     client = bigquery.Client(project=project, credentials=creds)
     
-    # Extracción de datos de contactos
     print("[EXTRACTION START ▶️] Extrayendo datos de contactos...", flush=True)
     query_source = f"SELECT {source_contact_id}, {source_phone_field} FROM {table_source}"
     df_contacts = client.query(query_source).to_dataframe()
@@ -648,7 +591,6 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     df_contacts.rename(columns={source_phone_field: "phone"}, inplace=True)
     df_contacts = df_contacts[df_contacts["phone"].notna() & (df_contacts["phone"].str.strip() != "")]
     
-    # Procesamiento de números telefónicos
     print("[TRANSFORMATION START ▶️] Procesando teléfonos en lotes...", flush=True)
     def _preprocess_phone(phone: str, default_prefix: str = default_prefix) -> str:
         if phone and isinstance(phone, str):
@@ -693,7 +635,6 @@ def SQL_generate_country_from_phone(config: dict) -> str:
 
     df_contacts["country_name_iso"], num_batches, error_batches = _process_phone_numbers(df_contacts["phone"], batch_size=1000)
     
-    # Extracción de estatus de llamadas
     print("[EXTRACTION START ▶️] Extrayendo estatus de llamadas...", flush=True)
     query_calls = (
         f"SELECT {call_match_field} AS {source_contact_id},\n"
@@ -705,7 +646,6 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     df_calls = client.query(query_calls).to_dataframe()
     print("[EXTRACTION SUCCESS ✅] Estatus de llamadas extraídos.", flush=True)
     
-    # Unión de contactos y llamadas
     mapping_df = pd.merge(
         df_contacts[[source_contact_id, "phone", "country_name_iso"]],
         df_calls[[source_contact_id, "call_status", "call_createdate"]],
@@ -718,7 +658,6 @@ def SQL_generate_country_from_phone(config: dict) -> str:
     fallidos = total_reg - exitos
     print(f"[METRICS [INFO ℹ️]] Estadísticas: Total: {total_reg}, Exitosos: {exitos} ({(exitos/total_reg)*100:.2f}%), Fallidos: {fallidos} ({(fallidos/total_reg)*100:.2f}%)", flush=True)
     
-    # Carga de la tabla auxiliar
     parts = target_table.split(".")
     if len(parts) != 3:
         raise ValueError("[VALIDATION [ERROR ❌]] 'target_table' debe ser 'proyecto.dataset.tabla'.")
@@ -733,7 +672,6 @@ def SQL_generate_country_from_phone(config: dict) -> str:
                       if_exists="replace",
                       credentials=creds)
     
-    # Construcción del SQL final: se integra la cláusula WITH en el CREATE OR REPLACE TABLE
     def _build_update_sql(aux_tbl: str, client: bigquery.Client) -> str:
         try:
             target_tbl_obj = client.get_table(target_table)
@@ -746,7 +684,6 @@ def SQL_generate_country_from_phone(config: dict) -> str:
         else:
             call_status_sql = call_status_values_list
         
-        # Se usan los alias "call_status" y "call_createdate" definidos en mapping_df
         if target_call_status_field.strip() == "":
             additional_field = f", l.country_name_iso AS {target_country_field}"
         else:
@@ -767,304 +704,13 @@ def SQL_generate_country_from_phone(config: dict) -> str:
         drop_sql = ""
         if config.get("temp_table_erase", True):
             drop_sql = f"\nDROP TABLE {aux_tbl};"
-        return join_sql + drop_sql
+        return join_sql + "\n" + drop_sql
 
     sql_script = _build_update_sql(aux_table, client)
     print("[TRANSFORMATION [SUCCESS ✅]] SQL generado para actualizar la tabla destino.", flush=True)
     print(sql_script, flush=True)
     print("[END FINISHED ✅] Proceso finalizado.\n", flush=True)
     return sql_script
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# __________________________________________________________________________________________________________________________________________________________
-def SQL_generate_country_name_mapping(config: dict) -> str:
-    """
-    Mapea nombres de países en español a sus equivalentes según ISO 3166-1 utilizando traducción y fuzzy matching.
-    Sube una tabla auxiliar con el mapeo y genera el script SQL para actualizar la tabla destino.
-    
-    Parámetros en config:
-      - GCP_project_id (str): ID del proyecto en GCP.
-      - source_table (str): Tabla origen en formato 'proyecto.dataset.tabla'.
-      - source_country_name_best_list (list): Lista de campos de país en orden de prioridad.
-      - source_id_name_field (str): Campo identificador en la tabla origen.
-      - country_name_skip_values_list (list, opcional): Lista de valores a omitir en el mapeo.
-      - manual_mapping_dic (dict, opcional): Diccionario con mapeos manuales.
-      - destination_table (str): Tabla destino en formato 'proyecto.dataset.tabla'.
-      - destination_id_field_name (str): Campo identificador para el JOIN.
-      - destination_country_mapped_field_name (str): Nombre del campo a agregar en la tabla destino.
-      - temp_table_name (str, opcional): Nombre de la tabla auxiliar (default: "temp_country_mapping").
-      - temp_table_erase (bool): Si True, se elimina la tabla auxiliar tras el JOIN.
-      - chunk_size (int, opcional): Tamaño de cada chunk (default: 10000).
-      Además, config debe incluir las claves comunes para autenticación:
-            "ini_environment_identificated", "json_keyfile_local", "json_keyfile_colab", "json_keyfile_GCP_secret_id"
-    
-    Retorna:
-        str: Script SQL generado.
-    """
-    import unicodedata
-    import time
-    import re
-    import pandas as pd
-    import pycountry
-    import pandas_gbq
-    from google.cloud import bigquery
-    from google.cloud import translate_v3 as translate
-    from rapidfuzz import fuzz, process
-
-    print("[START ▶️] Iniciando mapeo de nombres de países...", flush=True)
-    # Extracción de parámetros
-    source_table = config.get("source_table")
-    source_country_list = config.get("source_country_name_best_list")
-    source_id_field = config.get("source_id_name_field")
-    skip_values = config.get("country_name_skip_values_list", [])
-    manual_mapping_dic = config.get("manual_mapping_dic", {})
-    destination_table = config.get("destination_table")
-    destination_id_field = config.get("destination_id_field_name")
-    destination_country_field = config.get("destination_country_mapped_field_name")
-    temp_table_name = config.get("temp_table_name", "temp_country_mapping")
-    temp_table_erase = config.get("temp_table_erase", True)
-    chunk_size = config.get("chunk_size", 10000)
-    
-    # Validaciones
-    if not all(isinstance(x, str) and x for x in [source_table, source_id_field, destination_table, destination_id_field, destination_country_field]):
-        raise ValueError("[VALIDATION [ERROR ❌]] Algunos parámetros obligatorios no son válidos.")
-    if not isinstance(source_country_list, list) or not source_country_list:
-        raise ValueError("[VALIDATION [ERROR ❌]] 'source_country_name_best_list' es obligatorio y debe ser una lista.")
-    if not isinstance(skip_values, list):
-        raise ValueError("[VALIDATION [ERROR ❌]] 'country_name_skip_values_list' debe ser una lista.")
-    
-    # Funciones auxiliares internas
-    def _normalize_text(text: str) -> str:
-        text = text.lower().strip()
-        text = unicodedata.normalize('NFD', text)
-        return ''.join(c for c in text if unicodedata.category(c) != 'Mn').strip()
-    
-    def _get_best_country(row) -> str:
-        for field in source_country_list:
-            if pd.notna(row[field]) and row[field]:
-                return row[field]
-        return None
-    
-    def translate_batch_custom(words, prefix="El país llamado ", separator="|||", max_length=4000) -> dict:
-        from google.cloud import translate_v3 as translate
-        project_id = config.get("GCP_project_id")
-        creds = _ini_authenticate_API(config, project_id)
-        translator_client = translate.TranslationServiceClient(credentials=creds)
-        location = "global"
-        parent = f"projects/{project_id}/locations/{location}"
-        try:
-            request_prefix = {
-                "parent": parent,
-                "contents": [prefix],
-                "mime_type": "text/plain",
-                "target_language_code": "en",
-            }
-            response_prefix = translator_client.translate_text(request=request_prefix)
-            english_prefix = response_prefix.translations[0].translated_text.strip() if response_prefix.translations else "The country called"
-        except Exception as e:
-            print(f"[TRANSLATION WARNING] Error al traducir el prefijo: {e}. Se usará valor por defecto.", flush=True)
-            english_prefix = "The country called"
-        results = {}
-        chunk_phrases = []
-        chunk_original_words = []
-        current_length = 0
-        def process_chunk():
-            nonlocal results, chunk_phrases, chunk_original_words, current_length
-            if not chunk_phrases:
-                return
-            attempts = 0
-            translated_phrases = None
-            while attempts < 3:
-                try:
-                    request = {
-                        "parent": parent,
-                        "contents": chunk_phrases,
-                        "mime_type": "text/plain",
-                        "target_language_code": "en",
-                    }
-                    response = translator_client.translate_text(request=request)
-                    translated_phrases = [t.translated_text for t in response.translations]
-                    if any(tp is None for tp in translated_phrases):
-                        raise Exception("Traducción incompleta.")
-                    break
-                except Exception as e:
-                    attempts += 1
-                    if attempts >= 3:
-                        translated_phrases = []
-                        for word in chunk_original_words:
-                            try:
-                                request_ind = {
-                                    "parent": parent,
-                                    "contents": [word],
-                                    "mime_type": "text/plain",
-                                    "target_language_code": "en",
-                                }
-                                response_ind = translator_client.translate_text(request=request_ind)
-                                translated_phrases.append(response_ind.translations[0].translated_text if response_ind.translations else word)
-                            except Exception:
-                                translated_phrases.append(word)
-                        break
-                    time.sleep(1)
-            import re
-            prefix_pattern = re.compile(r'^' + re.escape(english_prefix), flags=re.IGNORECASE)
-            for orig, phrase in zip(chunk_original_words, translated_phrases):
-                phrase = phrase.strip() if phrase else orig
-                translated_word = prefix_pattern.sub('', phrase).strip()
-                results[orig] = translated_word
-            chunk_phrases.clear()
-            chunk_original_words.clear()
-            current_length = 0
-        for word in words:
-            if not word:
-                continue
-            phrase = f"{prefix}{word}"
-            phrase_length = len(phrase)
-            if chunk_phrases and (current_length + len(separator) + phrase_length > max_length):
-                process_chunk()
-            current_length = phrase_length if not chunk_phrases else current_length + len(separator) + phrase_length
-            chunk_phrases.append(phrase)
-            chunk_original_words.append(word)
-        if chunk_phrases:
-            process_chunk()
-        return results
-    
-    def _build_countries_dic():
-        countries_dic = {}
-        for country in list(pycountry.countries):
-            norm_name = _normalize_text(country.name)
-            countries_dic[norm_name] = country
-            if hasattr(country, 'official_name'):
-                countries_dic[_normalize_text(country.official_name)] = country
-            if hasattr(country, 'common_name'):
-                countries_dic[_normalize_text(country.common_name)] = country
-        return countries_dic
-    
-    def _build_update_sql(aux_tbl: str, client: bigquery.Client) -> str:
-        try:
-            dest_tbl = client.get_table(destination_table)
-            dest_fields = [field.name for field in dest_tbl.schema]
-        except Exception:
-            dest_fields = []
-        if destination_country_field in dest_fields:
-            join_sql = (
-                f"CREATE OR REPLACE TABLE `{destination_table}` AS\n"
-                f"SELECT d.* REPLACE(m.country_name_iso AS `{destination_country_field}`)\n"
-                f"FROM `{destination_table}` d\n"
-                f"LEFT JOIN `{aux_tbl}` m\n"
-                f"  ON d.{destination_id_field} = m.{source_id_field};"
-            )
-        else:
-            join_sql = (
-                f"CREATE OR REPLACE TABLE `{destination_table}` AS\n"
-                f"SELECT d.*, m.country_name_iso AS `{destination_country_field}`\n"
-                f"FROM `{destination_table}` d\n"
-                f"LEFT JOIN `{aux_tbl}` m\n"
-                f"  ON d.{destination_id_field} = m.{source_id_field};"
-            )
-        drop_sql = ""
-        if config.get("temp_table_erase", True):
-            drop_sql = f"DROP TABLE `{aux_tbl}`;"
-        return join_sql + "\n" + drop_sql
-
-    # Autenticación y creación del cliente
-    source_project = source_table.split(".")[0]
-    creds = _ini_authenticate_API(config, source_project)
-    client = bigquery.Client(project=source_project, credentials=creds)
-    
-    print(f"[EXTRACTION [START ▶️]] Extrayendo datos de {source_table}...", flush=True)
-    country_fields_sql = ", ".join(source_country_list)
-    query_source = f"SELECT {source_id_field}, {country_fields_sql} FROM `{source_table}`"
-    query_job = client.query(query_source, job_config=bigquery.QueryJobConfig(maximum_bytes_billed=int(1e10)))
-    df_chunks = []
-    result = query_job.result(page_size=chunk_size)
-    for page in result.pages:
-        page_rows = list(page)
-        if page_rows:
-            df_chunks.append(pd.DataFrame([dict(row) for row in page_rows]))
-    df = pd.concat(df_chunks, ignore_index=True)
-    if df.empty:
-        print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la tabla origen.", flush=True)
-        return ""
-    
-    print("[TRANSFORMATION [INFO ℹ️]] Procesando la mejor opción de país...", flush=True)
-    df["best_country_name"] = df.apply(_get_best_country, axis=1)
-    unique_countries = df["best_country_name"].dropna().unique().tolist()
-    print(f"[METRICS [INFO ℹ️]] Se encontraron {len(unique_countries)} países únicos.", flush=True)
-    
-    skip_set = set(_normalize_text(x) for x in skip_values if isinstance(x, str))
-    mapping_results = {}
-    countries_to_translate = []
-    for country in unique_countries:
-        if not isinstance(country, str):
-            mapping_results[country] = None
-            continue
-        if _normalize_text(country) in skip_set:
-            print(f"[EXTRACTION [INFO ℹ️]] Saltando mapeo para '{country}' (valor omitido).", flush=True)
-            mapping_results[country] = country
-        else:
-            countries_to_translate.append(country)
-    
-    print(f"[TRANSFORMATION [INFO ℹ️]] Traduciendo {len(countries_to_translate)} países...", flush=True)
-    translated_dict = translate_batch_custom(countries_to_translate, prefix="El país llamado ", separator="|||", max_length=4000)
-    countries_dic = _build_countries_dic()
-    country_iso_keys = list(countries_dic.keys())
-    for country in countries_to_translate:
-        translated_text = translated_dict.get(country, country)
-        normalized_translated = _normalize_text(translated_text)
-        override_found = False
-        for canonical, variants in manual_mapping_dic.items():
-            for variant in variants:
-                if _normalize_text(variant) == normalized_translated:
-                    mapping_results[country] = canonical
-                    override_found = True
-                    print(f"[MANUAL [INFO 📝]] '{country}' mapeado manualmente a: {canonical}", flush=True)
-                    break
-            if override_found:
-                break
-        if override_found:
-            continue
-        best_match = process.extractOne(normalized_translated, country_iso_keys, scorer=fuzz.ratio)
-        if best_match:
-            match_key, score, _ = best_match
-            country_obj = countries_dic[match_key]
-            mapping_results[country] = country_obj.common_name if hasattr(country_obj, 'common_name') else country_obj.name
-            print(f"[SUCCESS [INFO ✅]] '{country}' mapeado a: {mapping_results[country]} (Score: {score})", flush=True)
-        else:
-            print(f"[ERROR [INFO ❌]] No se encontró mapeo válido para '{country}'", flush=True)
-            mapping_results[country] = None
-
-    df["country_name_iso"] = df["best_country_name"].map(mapping_results)
-    mapping_columns = [source_id_field] + source_country_list + ["country_name_iso"]
-    mapping_df = df[mapping_columns].drop_duplicates()
-    
-    parts = destination_table.split(".")
-    if len(parts) != 3:
-        raise ValueError("[VALIDATION [ERROR ❌]] 'destination_table' debe ser 'proyecto.dataset.tabla'.")
-    dest_project, dest_dataset, _ = parts
-    aux_table = f"{dest_project}.{dest_dataset}.{temp_table_name}"
-    
-    print(f"[LOAD START ▶️] Subiendo tabla auxiliar {aux_table}...", flush=True)
-    pandas_gbq.to_gbq(mapping_df, destination_table=aux_table, project_id=dest_project, if_exists="replace", credentials=creds)
-    
-    sql_script = _build_update_sql(aux_table, client)
-    print("[TRANSFORMATION [SUCCESS ✅]] SQL generado para actualizar la tabla destino.", flush=True)
-    print(sql_script, flush=True)
-    print("[END FINISHED ✅] Proceso finalizado.", flush=True)
-    return sql_script
-
-
 
 
 
@@ -1146,9 +792,6 @@ def SQL_generate_deal_ordinal_str(params) -> str:
 
 
 
-
-
-
 # __________________________________________________________________________________________________________________________________________________________
 def SQL_generate_join_tables_str(params: dict) -> str:
     """
@@ -1172,21 +815,8 @@ def SQL_generate_join_tables_str(params: dict) -> str:
         str: Sentencia SQL generada.
     """
     print("[START ▶️] Generando SQL para unión de tablas...", flush=True)
-
-    table_primary = params["table_source_primary"]
-    primary_id_field = params["table_source_primary_id_field"]
-    table_secondary = params["table_source_secondary"]
-    secondary_id_field = params["table_source_secondary_id"]
-    bridge_use = params.get("table_source_bridge_use", False)
-    table_bridge = params.get("table_source_bridge", "")
-    bridge_ids_fields = params.get("table_source_bridge_ids_fields", {})
-    join_type = params.get("join_type", "LEFT").upper()
-    valid_joins = ["INNER", "LEFT", "RIGHT", "FULL", "CROSS"]
-    if join_type not in valid_joins:
-        raise ValueError(f"[VALIDATION [ERROR ❌]] join_type '{join_type}' no es válido. Debe ser uno de {valid_joins}.")
-    prefixes = params.get("join_field_prefixes", {"primary": "p_", "secondary": "s_", "bridge": "b_"})
-    table_destination = params["table_destination"]
-
+    import os
+    # Función interna para dividir el nombre completo de una tabla
     def split_table(full_name: str):
         parts = full_name.split(".")
         if len(parts) == 2:
@@ -1202,6 +832,7 @@ def SQL_generate_join_tables_str(params: dict) -> str:
     def get_columns(full_table: str):
         proj, dataset, table = split_table(full_table)
         print(f"[EXTRACTION [START ▶️]] Obteniendo columnas de {full_table}...", flush=True)
+        # Importar librerías necesarias para autenticación interna
         if os.environ.get("GOOGLE_CLOUD_PROJECT"):
             from google.cloud import secretmanager
             secret_id = params.get("json_keyfile_GCP_secret_id")
@@ -1213,14 +844,17 @@ def SQL_generate_join_tables_str(params: dict) -> str:
             secret_str = response.payload.data.decode("UTF-8")
             import json
             secret_info = json.loads(secret_str)
+            from google.oauth2 import service_account
             creds = service_account.Credentials.from_service_account_info(secret_info)
             print("[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas desde Secret Manager.", flush=True)
         else:
             json_path = params.get("json_keyfile_colab")
             if not json_path:
                 raise ValueError("[AUTHENTICATION [ERROR ❌]] Se debe proporcionar 'json_keyfile_colab' en entornos no GCP.")
+            from google.oauth2 import service_account
             creds = service_account.Credentials.from_service_account_file(json_path)
             print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde JSON.", flush=True)
+        from google.cloud import bigquery
         client = bigquery.Client(project=proj, credentials=creds)
         query = (
             f"SELECT column_name\n"
@@ -1232,6 +866,20 @@ def SQL_generate_join_tables_str(params: dict) -> str:
         cols = [row.column_name for row in rows]
         print(f"[EXTRACTION [SUCCESS ✅]] {len(cols)} columnas encontradas en {full_table}.", flush=True)
         return cols
+
+    table_primary = params["table_source_primary"]
+    primary_id_field = params["table_source_primary_id_field"]
+    table_secondary = params["table_source_secondary"]
+    secondary_id_field = params["table_source_secondary_id"]
+    bridge_use = params.get("table_source_bridge_use", False)
+    table_bridge = params.get("table_source_bridge", "")
+    bridge_ids_fields = params.get("table_source_bridge_ids_fields", {})
+    join_type = params.get("join_type", "LEFT").upper()
+    valid_joins = ["INNER", "LEFT", "RIGHT", "FULL", "CROSS"]
+    if join_type not in valid_joins:
+        raise ValueError(f"[VALIDATION [ERROR ❌]] join_type '{join_type}' no es válido. Debe ser uno de {valid_joins}.")
+    prefixes = params.get("join_field_prefixes", {"primary": "p_", "secondary": "s_", "bridge": "b_"})
+    table_destination = params["table_destination"]
 
     primary_cols = get_columns(table_primary)
     secondary_cols = get_columns(table_secondary)
@@ -1286,6 +934,9 @@ def SQL_generate_join_tables_str(params: dict) -> str:
 
 
 
+
+
+
 # __________________________________________________________________________________________________________________________________________________________
 def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     """
@@ -1303,6 +954,11 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     Retorna:
         tuple: (sql_script (str), mapping_df (pd.DataFrame))
     """
+    # Importar pandas y re, además de unicodedata para la normalización
+    import pandas as pd
+    import pandas_gbq
+    import re
+    import unicodedata
     print("[START ▶️] Generando SQL para agregar nuevas columnas desde mapeo...", flush=True)
     source_table = config.get("source_table_to_add_fields")
     source_field = config.get("source_table_to_add_fields_reference_field_name")
@@ -1338,7 +994,8 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     ref_field_names = list(ref_fields_dic.keys())
     sanitized_columns = {col: _sanitize_field_name(col) for col in ref_field_names}
 
-    def _extract_source_values(tbl: str, field: str, client: bigquery.Client) -> pd.DataFrame:
+    # Asumimos que _extract_source_values utiliza el cliente de BigQuery; este cliente se obtiene mediante _ini_authenticate_API
+    def _extract_source_values(tbl: str, field: str, client) -> pd.DataFrame:
         query = f"SELECT DISTINCT `{field}` AS raw_value FROM `{tbl}`"
         return client.query(query).to_dataframe()
 
@@ -1367,11 +1024,9 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
                 print(f"[TRANSFORMATION WARNING ⚠️] [NO MATCH] '{raw}' no encontrado.", flush=True)
         return mapping_results
 
-    def _get_client():
-        source_project = source_table.split(".")[0]
-        return bigquery.Client(project=source_project, credentials=_ini_authenticate_API(config, source_project))
-
-    client = _get_client()
+    # Obtener cliente de BigQuery
+    from google.cloud import bigquery
+    client = bigquery.Client(project=source_table.split(".")[0], credentials=_ini_authenticate_API(config, source_table.split(".")[0]))
     df_source = _extract_source_values(source_table, source_field, client)
     if df_source.empty:
         print("[EXTRACTION WARNING ⚠️] No se encontraron valores en la tabla source.", flush=True)
@@ -1395,7 +1050,6 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     dest_project, dest_dataset, _ = parts
     aux_table = f"{dest_project}.{dest_dataset}.temp_new_columns_mapping"
     
-    print(f"[LOAD START ▶️] Subiendo tabla auxiliar {aux_table}...", flush=True)
     pandas_gbq.to_gbq(mapping_df, destination_table=aux_table, project_id=dest_project, if_exists="replace", credentials=client._credentials)
     
     join_fields = [col for col in ref_field_names if ref_fields_dic.get(col, False)]
@@ -1411,11 +1065,6 @@ def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     sql_script = update_sql + "\n" + drop_sql
     print("[END FINISHED ✅] SQL para nuevas columnas generado.", flush=True)
     return sql_script, mapping_df
-
-
-
-
-
 
 
 
@@ -1447,6 +1096,11 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
     Retorna:
         tuple: (sql_script (str), df_fuzzy_results (pd.DataFrame))
     """
+    # Importar librerías necesarias
+    import pandas as pd
+    import pandas_gbq
+    import unicodedata
+    import re
     print("[NORMALIZATION START ▶️] Iniciando normalización de cadenas...", flush=True)
     source_table = config.get("source_table_to_normalize")
     source_field = config.get("source_table_to_normalize_field_name")
@@ -1474,7 +1128,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
         text = unicodedata.normalize('NFD', text)
         return ''.join(c for c in text if unicodedata.category(c) != 'Mn').strip()
 
-    def _extract_source_values(tbl: str, field: str, client: bigquery.Client) -> pd.DataFrame:
+    def _extract_source_values(tbl: str, field: str, client) -> pd.DataFrame:
         query = f"SELECT DISTINCT `{field}` AS raw_value FROM `{tbl}`"
         return client.query(query).to_dataframe()
 
@@ -1496,6 +1150,7 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
         return candidates
 
     def _apply_mapping(df_src: pd.DataFrame, manual_map: dict, rapid_candidates: dict) -> tuple:
+        from rapidfuzz import process, fuzz
         mapping_results = {}
         fuzzy_results_list = []
         candidate_keys = list(rapid_candidates.keys())
@@ -1526,8 +1181,8 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
         return mapping_results, fuzzy_results_list
 
     print(f"[EXTRACTION START ▶️] Extrayendo valores únicos de `{source_field}` desde {source_table}...", flush=True)
-    source_project = source_table.split(".")[0]
-    client = bigquery.Client(project=source_project, credentials=_ini_authenticate_API(config, source_project))
+    from google.cloud import bigquery
+    client = bigquery.Client(project=source_table.split(".")[0], credentials=_ini_authenticate_API(config, source_table.split(".")[0]))
     df_source = _extract_source_values(source_table, source_field, client)
     if df_source.empty:
         print("[EXTRACTION WARNING ⚠️] No se encontraron valores en la columna fuente.", flush=True)
@@ -1545,7 +1200,6 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
     dest_project, dest_dataset, _ = parts
     aux_table = f"{dest_project}.{dest_dataset}.temp_normalized_strings"
     
-    print(f"[LOAD START ▶️] Subiendo tabla auxiliar {aux_table} con el mapeo...", flush=True)
     pandas_gbq.to_gbq(mapping_df,
                       destination_table=aux_table,
                       project_id=dest_project,
