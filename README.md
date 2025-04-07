@@ -111,7 +111,6 @@ dpm_GBQ.GBQ_execute_SQL(config)
 Aquí se detalla brevemente cada módulo y algunas de sus funciones:
 
 - **dpm_GBQ.py**  
-  - `_ini_authenticate_API`: Autentica la conexión con GCP según el entorno.  
   - `GBQ_execute_SQL`: Ejecuta un script SQL en BigQuery y muestra detalles de la ejecución.  
   - `SQL_generate_academic_date_str`: Genera sentencias SQL para calcular fechas académicas o fiscales.  
   - ... (y otras funciones para generar vistas, limpieza y normalización de datos).
