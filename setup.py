@@ -15,7 +15,7 @@ setup(
     python_requires='>=3.7, <4',
     install_requires=[
         "google-cloud-bigquery>=2.34.0",         # Conexión y consultas en BigQuery
-        "google-cloud-secretmanager>=2.7.0",       # Acceso a Secret Manager para autenticación en GCP
+        "google-cloud-secret-manager>=2.7.0",       # Acceso a Secret Manager para autenticación en GCP
         "google-cloud-translate>=3.0.0",           # Traducciones en funciones SQL y mapeo de países
         "google-cloud-storage>=2.8.0",             # Operaciones con Google Cloud Storage (dpm_GCP.py y dpm_GCS.py)
         "pandas>=1.3.0",                         # Manipulación de DataFrames
