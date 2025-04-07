@@ -28,7 +28,7 @@ setup(
         "beautifulsoup4>=4.9.0",                   # Parsing HTML para scraping (dpm_scrap.py)
         "dateparser>=1.0.0",                       # Análisis de fechas en dpm_SQL.py
         "rarfile>=4.0.0"                           # Soporte opcional para descompresión de archivos .rar (en dpm_GCS.py)
-    ]
+    ],
     entry_points={
         # Scripts ejecutables desde la línea de comando
         # 'console_scripts': [
