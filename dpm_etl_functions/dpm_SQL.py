@@ -529,6 +529,377 @@ def SQL_generate_country_from_phone(config: dict) -> str:
 
 
 
+# ----------------------------------------------------------------------------
+# SQL_generate_country_name_mapping()
+# ----------------------------------------------------------------------------
+def SQL_generate_country_name_mapping(config: dict) -> str:
+    """
+    Función unificada que:
+      1. Extrae datos de una tabla de BigQuery y obtiene la mejor opción de nombre de país según prioridad.
+      2. Mapea los nombres de países en español a su equivalente en nombre ISO 3166-1.
+         - Se omiten aquellos que aparezcan en country_name_skip_values_list.
+         - Se puede sobrescribir manualmente mediante manual_mapping_dic.
+         - Optimizada para procesar grandes volúmenes (procesa el query en chunks).
+      3. Sube una tabla auxiliar en el mismo dataset de destination_table con los datos de mapeo,
+         conservando además los campos originales indicados en source_country_name_best_list.
+      4. Genera el script SQL para actualizar la tabla destino:
+            - Si la columna destino ya existe, usa "SELECT d.* REPLACE(m.country_name_iso AS `destination_country_mapped_field_name`)".
+            - Si no existe, usa "SELECT d.*, m.country_name_iso AS `destination_country_mapped_field_name`".
+            - Incluye el SQL para eliminar la tabla auxiliar (DROP TABLE) si "temp_table_erase" es True.
+         (La ejecución del script se hará desde otra función, por ejemplo, GBQ_execute_SQL()).
+    
+    Parámetros en config:
+      - json_keyfile_GCP_secret_id (str): Secret ID para obtener credenciales en GCP.
+      - json_keyfile_colab (str): Ruta al archivo JSON de credenciales para entornos no GCP.
+      - GCP_project_id (str): ID del proyecto en GCP (por ejemplo, "animum-dev-datawarehouse").
+      - source_table (str): Tabla origen en formato `proyecto.dataset.tabla`.
+      - source_country_name_best_list (list): Lista de campos de país en orden de prioridad.
+      - source_id_name_field (str): Campo identificador en la tabla origen.
+      - country_name_skip_values_list (list, opcional): Lista de valores a omitir en el mapeo.
+      - manual_mapping_dic (dict, opcional): Diccionario donde cada clave (nombre canónico)
+             asocia una lista de posibles variantes.
+      - destination_table (str): Tabla destino en formato `proyecto.dataset.tabla`.
+      - destination_id_field_name (str): Campo identificador en la tabla destino para el JOIN.
+      - destination_country_mapped_field_name (str): Nombre del campo a añadir en la tabla destino.
+      - temp_table_name (str): Nombre de la tabla temporal (solo el nombre, se usará en el dataset del destino).
+      - temp_table_erase (bool): Si True, se borrará la tabla temporal tras el JOIN.
+      - chunk_size (int, opcional): Tamaño de cada chunk al procesar el query (default 10,000).
+    
+    Retorna:
+        str: Una cadena de texto que contiene el script SQL completo (JOIN y DROP si corresponde) listo para ejecutarse.
+    """
+    import os
+    import json
+    import time
+    import re
+    import unicodedata
+    import pandas as pd
+    import pandas_gbq
+    from google.cloud import bigquery
+    from google.oauth2 import service_account
+    import pycountry
+    from rapidfuzz import process, fuzz
+
+    # --- Autenticación ---
+    print("[AUTHENTICATION [INFO] ℹ️] Iniciando autenticación...", flush=True)
+    if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+        # Importar secretmanager solo en entornos GCP
+        from google.cloud import secretmanager
+        secret_id = config.get("json_keyfile_GCP_secret_id")
+        if not secret_id:
+            raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
+        print("[AUTHENTICATION [INFO] ℹ️] Entorno GCP detectado. Obteniendo credenciales desde Secret Manager...", flush=True)
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+        client_sm = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{project}/secrets/{secret_id}/versions/latest"
+        response = client_sm.access_secret_version(name=secret_name)
+        secret_string = response.payload.data.decode("UTF-8")
+        secret_info = json.loads(secret_string)
+        creds = service_account.Credentials.from_service_account_info(secret_info)
+        print("[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas desde Secret Manager.", flush=True)
+    else:
+        json_path = config.get("json_keyfile_colab")
+        if not json_path:
+            raise ValueError("[AUTHENTICATION [ERROR ❌]] En entornos no GCP se debe proporcionar 'json_keyfile_colab'.")
+        print("[AUTHENTICATION [INFO] ℹ️] Entorno local detectado. Usando credenciales desde archivo JSON...", flush=True)
+        creds = service_account.Credentials.from_service_account_file(json_path)
+        print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde archivo JSON.", flush=True)
+    
+    # --- Validación de parámetros ---
+    print("[METRICS [INFO ℹ️]] Validando parámetros obligatorios...", flush=True)
+    source_table = config.get("source_table")
+    source_country_name_best_list = config.get("source_country_name_best_list")
+    source_id_name_field = config.get("source_id_name_field")
+    country_name_skip_values_list = config.get("country_name_skip_values_list", [])
+    manual_mapping_dic = config.get("manual_mapping_dic", {})
+    destination_table = config.get("destination_table")
+    destination_id_field_name = config.get("destination_id_field_name")
+    destination_country_mapped_field_name = config.get("destination_country_mapped_field_name")
+    
+    if not all(isinstance(x, str) and x for x in [
+        source_table, source_id_name_field, destination_table,
+        destination_id_field_name, destination_country_mapped_field_name]):
+        raise ValueError("Las keys 'source_table', 'source_id_name_field', 'destination_table', "
+                         "'destination_id_field_name' y 'destination_country_mapped_field_name' son obligatorias y deben ser cadenas válidas.")
+    if not isinstance(source_country_name_best_list, list) or not source_country_name_best_list:
+        raise ValueError("'source_country_name_best_list' es requerido y debe ser una lista válida.")
+    if not isinstance(country_name_skip_values_list, list):
+        raise ValueError("'country_name_skip_values_list' debe ser una lista si se proporciona.")
+    
+    # --- Subfunciones internas ---
+    def _normalize_text(texto: str) -> str:
+        """ Normaliza el texto: minúsculas, sin acentos y sin caracteres especiales """
+        texto = texto.lower().strip()
+        texto = unicodedata.normalize('NFD', texto)
+        texto = ''.join(c for c in texto if unicodedata.category(c) != 'Mn')
+        texto = re.sub(r'[^a-z0-9\s]', '', texto)
+        return texto
+
+    def _get_best_country(row) -> str:
+        """ Retorna la primera opción no nula en la lista de campos de país """
+        for field in source_country_name_best_list:
+            if pd.notna(row[field]) and row[field]:
+                return row[field]
+        return None
+
+    # --- Actualización en la lógica de traducción usando la API v3 ---
+    def translate_batch_custom(words, prefix="El país llamado ", separator="|||", max_length=4000) -> dict:
+        """
+        Traduce una lista de palabras de español a inglés agrupándolas en chunks utilizando la API de Google Cloud Translation v3.
+        Implementa reintentos y, en caso de fallo en la traducción en bloque, hace un fallback traduciendo cada palabra individualmente.
+        """
+        from google.cloud import translate_v3 as translate
+
+        # Crear cliente de traducción usando la API v3 y las credenciales ya autenticadas
+        translator_client = translate.TranslationServiceClient(credentials=creds)
+        project_id = config.get("GCP_project_id", "animum-dev-datawarehouse")
+        location = "global"
+        parent = f"projects/{project_id}/locations/{location}"
+        
+        # Traducir el prefijo
+        try:
+            request_prefix = {
+                "parent": parent,
+                "contents": [prefix],
+                "mime_type": "text/plain",
+                "target_language_code": "en",
+            }
+            response_prefix = translator_client.translate_text(request=request_prefix)
+            english_prefix = response_prefix.translations[0].translated_text.strip() if response_prefix.translations else "The country called"
+        except Exception as e:
+            print(f"[TRANSLATION WARNING] Error al traducir el prefijo: {e}. Se usará un prefijo por defecto.", flush=True)
+            english_prefix = "The country called"
+    
+        results = {}
+        chunk_phrases = []
+        chunk_original_words = []
+        current_length = 0
+    
+        def process_chunk():
+            nonlocal results, chunk_phrases, chunk_original_words, current_length
+            if not chunk_phrases:
+                return
+            attempts = 0
+            translated_phrases = None
+            while attempts < 3:
+                try:
+                    request = {
+                        "parent": parent,
+                        "contents": chunk_phrases,
+                        "mime_type": "text/plain",
+                        "target_language_code": "en",
+                    }
+                    response = translator_client.translate_text(request=request)
+                    translated_phrases = [trans.translated_text for trans in response.translations]
+                    if any(tp is None for tp in translated_phrases):
+                        raise Exception("La traducción en bloque devolvió None para alguna palabra")
+                    break
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= 3:
+                        translated_phrases = []
+                        for word in chunk_original_words:
+                            try:
+                                request_individual = {
+                                    "parent": parent,
+                                    "contents": [word],
+                                    "mime_type": "text/plain",
+                                    "target_language_code": "en",
+                                }
+                                response_individual = translator_client.translate_text(request=request_individual)
+                                if response_individual.translations:
+                                    translated_phrases.append(response_individual.translations[0].translated_text)
+                                else:
+                                    translated_phrases.append(word)
+                            except Exception:
+                                translated_phrases.append(word)
+                        break
+                    time.sleep(1)
+    
+            prefix_pattern = re.compile(r'^' + re.escape(english_prefix), flags=re.IGNORECASE)
+            for orig, phrase in zip(chunk_original_words, translated_phrases):
+                if phrase is None:
+                    phrase = orig
+                phrase = phrase.strip()
+                translated_word = prefix_pattern.sub('', phrase).strip()
+                results[orig] = translated_word
+            chunk_phrases.clear()
+            chunk_original_words.clear()
+            current_length = 0
+    
+        for word in words:
+            if not word:
+                continue
+            phrase = f"{prefix}{word}"
+            phrase_length = len(phrase)
+            if chunk_phrases and (current_length + len(separator) + phrase_length > max_length):
+                process_chunk()
+            if not chunk_phrases:
+                current_length = phrase_length
+            else:
+                current_length += len(separator) + phrase_length
+            chunk_phrases.append(phrase)
+            chunk_original_words.append(word)
+        if chunk_phrases:
+            process_chunk()
+        return results
+
+    def _build_countries_dic():
+        """ Construye un diccionario a partir de pycountry """
+        countries_dic = {}
+        for pais in list(pycountry.countries):
+            norm_name = _normalize_text(pais.name)
+            countries_dic[norm_name] = pais
+            if hasattr(pais, 'official_name'):
+                countries_dic[_normalize_text(pais.official_name)] = pais
+            if hasattr(pais, 'common_name'):
+                countries_dic[_normalize_text(pais.common_name)] = pais
+        return countries_dic
+
+    def _build_update_sql(aux_table: str, client: bigquery.Client) -> str:
+        """
+        Genera el script SQL para actualizar la tabla destino:
+          - Realiza el JOIN de la tabla auxiliar con la tabla destino.
+          - Si la columna destino ya existe, usa REPLACE; de lo contrario, la agrega.
+          - Incluye el SQL para eliminar la tabla auxiliar (DROP TABLE) si temp_table_erase es True.
+        Retorna el script completo, con cada sentencia finalizada con ';'.
+        """
+        try:
+            dest_table = client.get_table(destination_table)
+            dest_fields = [field.name for field in dest_table.schema]
+        except Exception:
+            dest_fields = []
+        
+        if destination_country_mapped_field_name in dest_fields:
+            join_sql = (
+                f"CREATE OR REPLACE TABLE `{destination_table}` AS\n"
+                f"SELECT d.* REPLACE(m.country_name_iso AS `{destination_country_mapped_field_name}`)\n"
+                f"FROM `{destination_table}` d\n"
+                f"LEFT JOIN `{aux_table}` m\n"
+                f"  ON d.{destination_id_field_name} = m.{source_id_name_field};"
+            )
+        else:
+            join_sql = (
+                f"CREATE OR REPLACE TABLE `{destination_table}` AS\n"
+                f"SELECT d.*, m.country_name_iso AS `{destination_country_mapped_field_name}`\n"
+                f"FROM `{destination_table}` d\n"
+                f"LEFT JOIN `{aux_table}` m\n"
+                f"  ON d.{destination_id_field_name} = m.{source_id_name_field};"
+            )
+        drop_sql = ""
+        if config.get("temp_table_erase", True):
+            drop_sql = f"DROP TABLE `{aux_table}`;"
+        sql_script = join_sql + "\n" + drop_sql
+        return sql_script
+
+    # --- Proceso principal ---
+    source_project = source_table.split(".")[0]
+    client = bigquery.Client(project=source_project, credentials=creds)
+    print(f"[EXTRACTION [START ▶️]] Extrayendo datos de {source_table}...", flush=True)
+    
+    country_fields_sql = ", ".join(source_country_name_best_list)
+    query_source = f"""
+        SELECT {source_id_name_field}, {country_fields_sql}
+        FROM `{source_table}`
+    """
+    chunk_size = config.get("chunk_size", 10000)
+    query_job = client.query(query_source)
+    df_list = []
+    result = query_job.result(page_size=chunk_size)
+    schema = [field.name for field in result.schema]
+    for page in result.pages:
+        page_rows = list(page)
+        if page_rows:
+            df_chunk = pd.DataFrame([dict(row) for row in page_rows])
+            df_list.append(df_chunk)
+    df = pd.concat(df_list, ignore_index=True)
+    
+    if df.empty:
+        print("[EXTRACTION [WARNING ⚠️]] No se encontraron datos en la tabla origen.", flush=True)
+        return ""
+    
+    print("[TRANSFORMATION [START ▶️]] Procesando la mejor opción de país...", flush=True)
+    df["best_country_name"] = df.apply(_get_best_country, axis=1)
+    unique_countries = df["best_country_name"].dropna().unique().tolist()
+    print(f"[METRICS [INFO ℹ️]] Se encontraron {len(unique_countries)} países únicos para mapear.", flush=True)
+    
+    # Preparar el conjunto de países a omitir (skip)
+    skip_set = set(_normalize_text(x) for x in country_name_skip_values_list if isinstance(x, str))
+    
+    mapping_results = {}
+    countries_to_translate = []
+    for country in unique_countries:
+        if not isinstance(country, str):
+            mapping_results[country] = None
+            continue
+        if _normalize_text(country) in skip_set:
+            print(f"[EXTRACTION [INFO ℹ️]] Saltando mapeo para '{country}' (en lista de omisión).", flush=True)
+            mapping_results[country] = country
+        else:
+            countries_to_translate.append(country)
+    
+    print(f"[TRANSFORMATION [START ▶️]] Traduciendo {len(countries_to_translate)} países en lote...", flush=True)
+    # Se aplica la lógica de traducción robusta usando la API v3
+    translated_dict = translate_batch_custom(countries_to_translate, prefix="El país llamado ", separator="|||", max_length=4000)
+    
+    countries_dic = _build_countries_dic()
+    country_iso_keys = list(countries_dic.keys())
+    
+    for country in countries_to_translate:
+        translated_text = translated_dict.get(country, country)
+        normalized_translated = _normalize_text(translated_text)
+        override_found = False
+        for canonical, variants in manual_mapping_dic.items():
+            for variant in variants:
+                if _normalize_text(variant) == normalized_translated:
+                    mapping_results[country] = canonical
+                    override_found = True
+                    print(f"[MANUAL [INFO 📝]] '{country}' mapeado manualmente a: {canonical}", flush=True)
+                    break
+            if override_found:
+                break
+        if override_found:
+            continue
+        best_match = process.extractOne(normalized_translated, country_iso_keys, scorer=fuzz.ratio)
+        if best_match:
+            match_key, score, _ = best_match
+            country_obj = countries_dic[match_key]
+            if hasattr(country_obj, 'common_name'):
+                mapping_results[country] = country_obj.common_name
+            else:
+                mapping_results[country] = country_obj.name
+            print(f"[SUCCESS [INFO ✅]] '{country}' mapeado a: {mapping_results[country]} (Score: {score})", flush=True)
+        else:
+            print(f"[ERROR [INFO ❌]] No se encontró un mapeo válido para '{country}'", flush=True)
+            mapping_results[country] = None
+
+    df["country_name_iso"] = df["best_country_name"].map(mapping_results)
+    mapping_columns = [source_id_name_field] + source_country_name_best_list + ["country_name_iso"]
+    mapping_df = df[mapping_columns].drop_duplicates()
+    
+    dest_parts = destination_table.split(".")
+    if len(dest_parts) != 3:
+        raise ValueError("El formato de 'destination_table' debe ser 'proyecto.dataset.tabla'.")
+    dest_project, dest_dataset, _ = dest_parts
+    aux_table = f"{dest_project}.{dest_dataset}.{config.get('temp_table_name', 'temp_country_mapping')}"
+    
+    print(f"[LOAD [START ▶️]] Subiendo tabla auxiliar {aux_table} con datos de mapeo...", flush=True)
+    pandas_gbq.to_gbq(mapping_df, destination_table=aux_table, project_id=dest_project, if_exists="replace", credentials=creds)
+    
+    sql_script = _build_update_sql(aux_table, client)
+    print("[TRANSFORMATION [SUCCESS ✅]] SQL generado para actualizar la tabla destino.", flush=True)
+    print(sql_script, flush=True)
+    print("[END [FINISHED ✅]] Proceso finalizado.", flush=True)
+    
+    return sql_script
+
+
+
+
+
+
+
+
 
 # __________________________________________________________________________________________________________________________________________________________
 def SQL_generate_deal_ordinal_str(params) -> str:
