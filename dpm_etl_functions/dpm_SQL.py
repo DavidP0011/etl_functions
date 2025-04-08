@@ -1,58 +1,4 @@
 # __________________________________________________________________________________________________________________________________________________________
-def _ini_authenticate_API(config: dict, project_id: str):
-    """
-    Autentica utilizando el diccionario común en config.
-    
-    Dependiendo de 'ini_environment_identificated' se utiliza:
-      - "LOCAL": usa la key "json_keyfile_local"
-      - "COLAB": usa la key "json_keyfile_colab"
-      - Para GCP (por ejemplo, "COLAB_ENTERPRISE" o un project_id): usa "json_keyfile_GCP_secret_id"
-      
-    Args:
-      config (dict): Diccionario de configuración.
-      project_id (str): ID del proyecto GCP (se usa en la autenticación GCP).
-      
-    Returns:
-      Credentials: Objeto de credenciales para la autenticación.
-    """
-    from google.oauth2 import service_account
-    env = config.get("ini_environment_identificated", "COLAB")
-    if env == "LOCAL":
-        json_path = config.get("json_keyfile_local")
-        if not json_path:
-            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_local' en config para entorno LOCAL.")
-        credentials = service_account.Credentials.from_service_account_file(json_path)
-    elif env == "COLAB":
-        json_path = config.get("json_keyfile_colab")
-        if not json_path:
-            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_colab' en config para entorno COLAB.")
-        credentials = service_account.Credentials.from_service_account_file(json_path)
-    else:
-        secret_id = config.get("json_keyfile_GCP_secret_id")
-        if not secret_id:
-            raise ValueError("[AUTHENTICATION ERROR ❌] Falta 'json_keyfile_GCP_secret_id' en config para entornos GCP.")
-        from google.cloud import secretmanager
-        client_sm = secretmanager.SecretManagerServiceClient()
-        secret_name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-        response = client_sm.access_secret_version(name=secret_name)
-        secret_str = response.payload.data.decode("UTF-8")
-        import json
-        secret_info = json.loads(secret_str)
-        credentials = service_account.Credentials.from_service_account_info(secret_info)
-    return credentials
-
-
-
-
-
-
-
-
-
-
-
-
-# __________________________________________________________________________________________________________________________________________________________
 def GBQ_execute_SQL(config: dict) -> None:
     """
     Ejecuta un script SQL en Google BigQuery y muestra un resumen detallado de la ejecución.
@@ -221,154 +167,8 @@ def SQL_generate_academic_date_str(params) -> str:
     print("[END [FINISHED ✅]] SQL generado exitosamente.\n", flush=True)
     return sql_script
 
-# __________________________________________________________________________________________________________________________________________________________
-def SQL_generate_BI_view_str(params: dict) -> str:
-    """
-    Crea o reemplaza una vista BI a partir de una tabla fuente, aplicando mapeos y filtros (rango de fechas, exclusión de registros borrados).
-
-    Parámetros en params:
-      - table_source (str): Tabla origen.
-      - table_destination (str): Vista o tabla destino.
-      - fields_mapped_df (pd.DataFrame): DataFrame con columnas ["Campo Original", "Campo Formateado"].
-      - use_mapped_names (bool): Si True, usa nombres formateados.
-      - creation_date_field (str, opcional): Campo de fecha.
-      - use_date_range (bool): Si True, filtra por rango de fechas.
-      - date_range (dict, opcional): {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}.
-      - exclude_deleted_records_bool (bool): Si True, excluye registros marcados como borrados.
-      - exclude_deleted_records_field_name (str, opcional)
-      - exclude_deleted_records_field_value: Valor que indica borrado.
-
-    Retorna:
-        str: Sentencia SQL generada.
-    """
-    # Importar pandas para validar el DataFrame
-    import pandas as pd
-    print("[START ▶️] Generando vista BI...", flush=True)
-    table_source = params.get("table_source")
-    table_destination = params.get("table_destination")
-    fields_mapped_df = params.get("fields_mapped_df")
-    if not table_source or not table_destination or not isinstance(fields_mapped_df, pd.DataFrame):
-        raise ValueError("[VALIDATION [ERROR ❌]] Faltan parámetros obligatorios: 'table_source', 'table_destination' o 'fields_mapped_df'.")
-    
-    use_mapped_names = params.get("use_mapped_names", True)
-    creation_date_field = params.get("creation_date_field", "")
-    date_range = params.get("date_range", {})
-    use_date_range = params.get("use_date_range", False)
-    exclude_deleted_records_bool = params.get("exclude_deleted_records_bool", False)
-    exclude_deleted_records_field_name = params.get("exclude_deleted_records_field_name", "")
-    exclude_deleted_records_field_value = params.get("exclude_deleted_records_field_value", None)
-    
-    select_cols = []
-    for _, row in fields_mapped_df.iterrows():
-        original = row["Campo Original"]
-        mapped = row["Campo Formateado"]
-        if use_mapped_names:
-            select_cols.append(f"`{original}` AS `{mapped}`")
-        else:
-            select_cols.append(f"`{original}`")
-    select_clause = ",\n  ".join(select_cols)
-    
-    where_filters = []
-    if use_date_range and creation_date_field:
-        date_from = date_range.get("from", "")
-        date_to = date_range.get("to", "")
-        if date_from and date_to:
-            where_filters.append(f"`{creation_date_field}` BETWEEN '{date_from}' AND '{date_to}'")
-        elif date_from:
-            where_filters.append(f"`{creation_date_field}` >= '{date_from}'")
-        elif date_to:
-            where_filters.append(f"`{creation_date_field}` <= '{date_to}'")
-    if exclude_deleted_records_bool and exclude_deleted_records_field_name and exclude_deleted_records_field_value is not None:
-        where_filters.append(f"(`{exclude_deleted_records_field_name}` IS NULL OR `{exclude_deleted_records_field_name}` != {exclude_deleted_records_field_value})")
-    where_clause = " AND ".join(where_filters) if where_filters else "TRUE"
-    
-    sql_script = (
-        f"CREATE OR REPLACE VIEW `{table_destination}` AS\n"
-        f"SELECT\n"
-        f"  {select_clause}\n"
-        f"FROM `{table_source}`\n"
-        f"WHERE {where_clause}\n"
-        f";"
-    )
-    print("[END [FINISHED ✅]] Vista BI generada.\n", flush=True)
-    return sql_script
 
 
-
-
-
-
-
-
-# __________________________________________________________________________________________________________________________________________________________
-def SQL_generate_CPL_to_contacts_str(params: dict) -> str:
-    """
-    Genera una sentencia SQL para crear o reemplazar una tabla que combina datos de contactos, métricas agregadas y métricas publicitarias,
-    calculando indicadores como el CPL (costo por lead) a nivel de contacto.
-
-    Parámetros en params:
-      - table_destination (str): Tabla resultado.
-      - table_source (str): Tabla de contactos.
-      - table_aggregated (str): Tabla agregada de métricas.
-      - join_field (str): Campo de fecha para unión.
-      - join_on_source (str): Campo de fuente para unión.
-      - contact_creation_number (str): Campo que indica el número de contactos creados.
-      - ad_platforms (list): Lista de diccionarios con configuraciones de plataformas.
-
-    Retorna:
-        str: Sentencia SQL generada.
-    """
-    print("[START ▶️] Generando SQL para CPL a contacts...", flush=True)
-    table_destination = params["table_destination"]
-    table_source = params["table_source"]
-    table_aggregated = params["table_aggregated"]
-    join_field = params["join_field"]
-    join_on_source = params["join_on_source"]
-    contact_creation_number = params["contact_creation_number"]
-    ad_platforms = params["ad_platforms"]
-
-    from_clause = (
-        f"FROM `{table_source}` o\n"
-        f"LEFT JOIN `{table_aggregated}` a\n"
-        f"  ON DATE(o.{join_field}) = a.{join_field}\n"
-        f"  AND o.{join_on_source} = a.{join_on_source}\n"
-    )
-    joins = []
-    select_platform_metrics = []
-    for idx, plat in enumerate(ad_platforms, start=1):
-        alias = f"p{idx}"
-        prefix = plat["prefix"]
-        table = plat["table"]
-        date_field = plat["date_field"]
-        source_value = plat["source_value"]
-        joins.append(
-            f"LEFT JOIN `{table}` {alias}\n"
-            f"  ON a.{join_field} = {alias}.{date_field}\n"
-        )
-        for key, value in plat.items():
-            if key.startswith("total_"):
-                metric = key.replace("total_", "")
-                col_name = f"contact_Ads_{prefix}_{metric}_by_day"
-                expr = (
-                    f"CASE\n"
-                    f"  WHEN a.{join_on_source} = \"{source_value}\" AND a.{contact_creation_number} > 0\n"
-                    f"    THEN {alias}.{value} / a.{contact_creation_number}\n"
-                    f"  ELSE NULL\n"
-                    f"END AS {col_name}"
-                )
-                select_platform_metrics.append(expr)
-    final_select = ",\n".join(["o.*"] + select_platform_metrics)
-    join_clause = "".join(joins)
-    sql_script = (
-        f"CREATE OR REPLACE TABLE `{table_destination}` AS\n"
-        f"SELECT\n"
-        f"  {final_select}\n"
-        f"{from_clause}"
-        f"{join_clause}\n"
-        f";"
-    )
-    print("[END [FINISHED ✅]] SQL para CPL a contacts generado.\n", flush=True)
-    return sql_script
 
 
 
@@ -791,152 +591,6 @@ def SQL_generate_deal_ordinal_str(params) -> str:
 
 
 
-
-# __________________________________________________________________________________________________________________________________________________________
-def SQL_generate_join_tables_str(params: dict) -> str:
-    """
-    Crea o reemplaza una tabla uniendo una tabla primaria, una secundaria y opcionalmente una tabla puente,
-    aplicando prefijos a las columnas para evitar duplicados.
-
-    Parámetros en params:
-      - table_source_primary (str): Tabla primaria.
-      - table_source_primary_id_field (str): Campo de unión en la tabla primaria.
-      - table_source_secondary (str): Tabla secundaria.
-      - table_source_secondary_id (str): Campo de unión en la tabla secundaria.
-      - table_source_bridge_use (bool): Indica si se utiliza tabla puente.
-      - table_source_bridge (str, opcional): Tabla puente.
-      - table_source_bridge_ids_fields (dict, opcional): Diccionario con keys 'primary_id' y 'secondary_id'.
-      - join_type (str, opcional): Tipo de JOIN (por defecto "LEFT").
-      - join_field_prefixes (dict, opcional): Prefijos para las columnas.
-      - table_destination (str): Tabla destino.
-      Además, se espera que params incluya las claves comunes para autenticación.
-
-    Retorna:
-        str: Sentencia SQL generada.
-    """
-    print("[START ▶️] Generando SQL para unión de tablas...", flush=True)
-    import os
-    # Función interna para dividir el nombre completo de una tabla
-    def split_table(full_name: str):
-        parts = full_name.split(".")
-        if len(parts) == 2:
-            project = params.get("GCP_project_id") or os.environ.get("GOOGLE_CLOUD_PROJECT")
-            if not project:
-                raise ValueError("[VALIDATION [ERROR ❌]] Se requiere 'GCP_project_id' para formato 'dataset.table'.")
-            return project, parts[0], parts[1]
-        elif len(parts) == 3:
-            return parts[0], parts[1], parts[2]
-        else:
-            raise ValueError(f"[VALIDATION [ERROR ❌]] Nombre de tabla inválido: {full_name}")
-
-    def get_columns(full_table: str):
-        proj, dataset, table = split_table(full_table)
-        print(f"[EXTRACTION [START ▶️]] Obteniendo columnas de {full_table}...", flush=True)
-        # Importar librerías necesarias para autenticación interna
-        if os.environ.get("GOOGLE_CLOUD_PROJECT"):
-            from google.cloud import secretmanager
-            secret_id = params.get("json_keyfile_GCP_secret_id")
-            if not secret_id:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
-            client_sm = secretmanager.SecretManagerServiceClient()
-            secret_name = f"projects/{proj}/secrets/{secret_id}/versions/latest"
-            response = client_sm.access_secret_version(name=secret_name)
-            secret_str = response.payload.data.decode("UTF-8")
-            import json
-            secret_info = json.loads(secret_str)
-            from google.oauth2 import service_account
-            creds = service_account.Credentials.from_service_account_info(secret_info)
-            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas desde Secret Manager.", flush=True)
-        else:
-            json_path = params.get("json_keyfile_colab")
-            if not json_path:
-                raise ValueError("[AUTHENTICATION [ERROR ❌]] Se debe proporcionar 'json_keyfile_colab' en entornos no GCP.")
-            from google.oauth2 import service_account
-            creds = service_account.Credentials.from_service_account_file(json_path)
-            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde JSON.", flush=True)
-        from google.cloud import bigquery
-        client = bigquery.Client(project=proj, credentials=creds)
-        query = (
-            f"SELECT column_name\n"
-            f"FROM `{proj}.{dataset}.INFORMATION_SCHEMA.COLUMNS`\n"
-            f"WHERE table_name = '{table}'\n"
-            f"ORDER BY ordinal_position"
-        )
-        rows = client.query(query).result()
-        cols = [row.column_name for row in rows]
-        print(f"[EXTRACTION [SUCCESS ✅]] {len(cols)} columnas encontradas en {full_table}.", flush=True)
-        return cols
-
-    table_primary = params["table_source_primary"]
-    primary_id_field = params["table_source_primary_id_field"]
-    table_secondary = params["table_source_secondary"]
-    secondary_id_field = params["table_source_secondary_id"]
-    bridge_use = params.get("table_source_bridge_use", False)
-    table_bridge = params.get("table_source_bridge", "")
-    bridge_ids_fields = params.get("table_source_bridge_ids_fields", {})
-    join_type = params.get("join_type", "LEFT").upper()
-    valid_joins = ["INNER", "LEFT", "RIGHT", "FULL", "CROSS"]
-    if join_type not in valid_joins:
-        raise ValueError(f"[VALIDATION [ERROR ❌]] join_type '{join_type}' no es válido. Debe ser uno de {valid_joins}.")
-    prefixes = params.get("join_field_prefixes", {"primary": "p_", "secondary": "s_", "bridge": "b_"})
-    table_destination = params["table_destination"]
-
-    primary_cols = get_columns(table_primary)
-    secondary_cols = get_columns(table_secondary)
-    bridge_cols = []
-    if bridge_use and table_bridge:
-        bridge_cols = get_columns(table_bridge)
-    
-    primary_select = [f"{prefixes['primary']}.{col} AS {prefixes['primary']}{col}" for col in primary_cols]
-    secondary_select = [f"{prefixes['secondary']}.{col} AS {prefixes['secondary']}{col}" for col in secondary_cols]
-    bridge_select = []
-    if bridge_use and bridge_cols:
-        bridge_select = [f"{prefixes['bridge']}.{col} AS {prefixes['bridge']}{col}" for col in bridge_cols]
-    
-    all_select = primary_select + secondary_select + bridge_select
-    select_clause = ",\n  ".join(all_select)
-    
-    if bridge_use and table_bridge:
-        join_clause = (
-            f"FROM `{table_primary}` AS {prefixes['primary']}\n"
-            f"{join_type} JOIN `{table_bridge}` AS {prefixes['bridge']}\n"
-            f"  ON {prefixes['bridge']}.{bridge_ids_fields['primary_id']} = {prefixes['primary']}.{primary_id_field}\n"
-            f"{join_type} JOIN `{table_secondary}` AS {prefixes['secondary']}\n"
-            f"  ON {prefixes['bridge']}.{bridge_ids_fields['secondary_id']} = {prefixes['secondary']}.{secondary_id_field}\n"
-        )
-    else:
-        join_clause = (
-            f"FROM `{table_primary}` AS {prefixes['primary']}\n"
-            f"{join_type} JOIN `{table_secondary}` AS {prefixes['secondary']}\n"
-            f"  ON {prefixes['primary']}.{primary_id_field} = {prefixes['secondary']}.{secondary_id_field}\n"
-        )
-    sql_script = (
-        f"CREATE OR REPLACE TABLE `{table_destination}` AS\n"
-        f"SELECT\n"
-        f"  {select_clause}\n"
-        f"{join_clause}"
-        f";"
-    )
-    print("[END FINISHED ✅] SQL para unión de tablas generado.\n", flush=True)
-    return sql_script
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # __________________________________________________________________________________________________________________________________________________________
 def SQL_generate_new_columns_from_mapping(config: dict) -> tuple:
     """
@@ -1226,3 +880,320 @@ def SQL_generation_normalize_strings(config: dict) -> tuple:
     sql_script = update_sql + "\n" + drop_sql
     print("[END FINISHED ✅] SQL para normalización generado.", flush=True)
     return sql_script, pd.DataFrame(fuzzy_results_list)
+
+
+
+
+
+
+
+
+
+
+# __________________________________________________________________________________________________________________________________________________________
+def SQL_generate_join_tables_str(params: dict) -> str:
+    """
+    Crea o reemplaza una tabla uniendo una tabla primaria, una secundaria y opcionalmente una tabla puente,
+    aplicando prefijos a las columnas para evitar duplicados.
+
+    Parámetros en params:
+      - table_source_primary (str): Tabla primaria.
+      - table_source_primary_id_field (str): Campo de unión en la tabla primaria.
+      - table_source_secondary (str): Tabla secundaria.
+      - table_source_secondary_id (str): Campo de unión en la tabla secundaria.
+      - table_source_bridge_use (bool): Indica si se utiliza tabla puente.
+      - table_source_bridge (str, opcional): Tabla puente.
+      - table_source_bridge_ids_fields (dict, opcional): Diccionario con keys 'primary_id' y 'secondary_id'.
+      - join_type (str, opcional): Tipo de JOIN (por defecto "LEFT").
+      - join_field_prefixes (dict, opcional): Prefijos para las columnas.
+      - table_destination (str): Tabla destino.
+      Además, se espera que params incluya las claves comunes para autenticación.
+
+    Retorna:
+        str: Sentencia SQL generada.
+    """
+    print("[START ▶️] Generando SQL para unión de tablas...", flush=True)
+    import os
+    # Función interna para dividir el nombre completo de una tabla
+    def split_table(full_name: str):
+        parts = full_name.split(".")
+        if len(parts) == 2:
+            project = params.get("GCP_project_id") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+            if not project:
+                raise ValueError("[VALIDATION [ERROR ❌]] Se requiere 'GCP_project_id' para formato 'dataset.table'.")
+            return project, parts[0], parts[1]
+        elif len(parts) == 3:
+            return parts[0], parts[1], parts[2]
+        else:
+            raise ValueError(f"[VALIDATION [ERROR ❌]] Nombre de tabla inválido: {full_name}")
+
+    def get_columns(full_table: str):
+        proj, dataset, table = split_table(full_table)
+        print(f"[EXTRACTION [START ▶️]] Obteniendo columnas de {full_table}...", flush=True)
+        # Importar librerías necesarias para autenticación interna
+        if os.environ.get("GOOGLE_CLOUD_PROJECT"):
+            from google.cloud import secretmanager
+            secret_id = params.get("json_keyfile_GCP_secret_id")
+            if not secret_id:
+                raise ValueError("[AUTHENTICATION [ERROR ❌]] En GCP se debe proporcionar 'json_keyfile_GCP_secret_id'.")
+            client_sm = secretmanager.SecretManagerServiceClient()
+            secret_name = f"projects/{proj}/secrets/{secret_id}/versions/latest"
+            response = client_sm.access_secret_version(name=secret_name)
+            secret_str = response.payload.data.decode("UTF-8")
+            import json
+            secret_info = json.loads(secret_str)
+            from google.oauth2 import service_account
+            creds = service_account.Credentials.from_service_account_info(secret_info)
+            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales obtenidas desde Secret Manager.", flush=True)
+        else:
+            json_path = params.get("json_keyfile_colab")
+            if not json_path:
+                raise ValueError("[AUTHENTICATION [ERROR ❌]] Se debe proporcionar 'json_keyfile_colab' en entornos no GCP.")
+            from google.oauth2 import service_account
+            creds = service_account.Credentials.from_service_account_file(json_path)
+            print("[AUTHENTICATION [SUCCESS ✅]] Credenciales cargadas desde JSON.", flush=True)
+        from google.cloud import bigquery
+        client = bigquery.Client(project=proj, credentials=creds)
+        query = (
+            f"SELECT column_name\n"
+            f"FROM `{proj}.{dataset}.INFORMATION_SCHEMA.COLUMNS`\n"
+            f"WHERE table_name = '{table}'\n"
+            f"ORDER BY ordinal_position"
+        )
+        rows = client.query(query).result()
+        cols = [row.column_name for row in rows]
+        print(f"[EXTRACTION [SUCCESS ✅]] {len(cols)} columnas encontradas en {full_table}.", flush=True)
+        return cols
+
+    table_primary = params["table_source_primary"]
+    primary_id_field = params["table_source_primary_id_field"]
+    table_secondary = params["table_source_secondary"]
+    secondary_id_field = params["table_source_secondary_id"]
+    bridge_use = params.get("table_source_bridge_use", False)
+    table_bridge = params.get("table_source_bridge", "")
+    bridge_ids_fields = params.get("table_source_bridge_ids_fields", {})
+    join_type = params.get("join_type", "LEFT").upper()
+    valid_joins = ["INNER", "LEFT", "RIGHT", "FULL", "CROSS"]
+    if join_type not in valid_joins:
+        raise ValueError(f"[VALIDATION [ERROR ❌]] join_type '{join_type}' no es válido. Debe ser uno de {valid_joins}.")
+    prefixes = params.get("join_field_prefixes", {"primary": "p_", "secondary": "s_", "bridge": "b_"})
+    table_destination = params["table_destination"]
+
+    primary_cols = get_columns(table_primary)
+    secondary_cols = get_columns(table_secondary)
+    bridge_cols = []
+    if bridge_use and table_bridge:
+        bridge_cols = get_columns(table_bridge)
+    
+    primary_select = [f"{prefixes['primary']}.{col} AS {prefixes['primary']}{col}" for col in primary_cols]
+    secondary_select = [f"{prefixes['secondary']}.{col} AS {prefixes['secondary']}{col}" for col in secondary_cols]
+    bridge_select = []
+    if bridge_use and bridge_cols:
+        bridge_select = [f"{prefixes['bridge']}.{col} AS {prefixes['bridge']}{col}" for col in bridge_cols]
+    
+    all_select = primary_select + secondary_select + bridge_select
+    select_clause = ",\n  ".join(all_select)
+    
+    if bridge_use and table_bridge:
+        join_clause = (
+            f"FROM `{table_primary}` AS {prefixes['primary']}\n"
+            f"{join_type} JOIN `{table_bridge}` AS {prefixes['bridge']}\n"
+            f"  ON {prefixes['bridge']}.{bridge_ids_fields['primary_id']} = {prefixes['primary']}.{primary_id_field}\n"
+            f"{join_type} JOIN `{table_secondary}` AS {prefixes['secondary']}\n"
+            f"  ON {prefixes['bridge']}.{bridge_ids_fields['secondary_id']} = {prefixes['secondary']}.{secondary_id_field}\n"
+        )
+    else:
+        join_clause = (
+            f"FROM `{table_primary}` AS {prefixes['primary']}\n"
+            f"{join_type} JOIN `{table_secondary}` AS {prefixes['secondary']}\n"
+            f"  ON {prefixes['primary']}.{primary_id_field} = {prefixes['secondary']}.{secondary_id_field}\n"
+        )
+    sql_script = (
+        f"CREATE OR REPLACE TABLE `{table_destination}` AS\n"
+        f"SELECT\n"
+        f"  {select_clause}\n"
+        f"{join_clause}"
+        f";"
+    )
+    print("[END FINISHED ✅] SQL para unión de tablas generado.\n", flush=True)
+    return sql_script
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# __________________________________________________________________________________________________________________________________________________________
+def SQL_generate_BI_view_str(params: dict) -> str:
+    """
+    Crea o reemplaza una vista BI a partir de una tabla fuente, aplicando mapeos y filtros (rango de fechas, exclusión de registros borrados).
+
+    Parámetros en params:
+      - table_source (str): Tabla origen.
+      - table_destination (str): Vista o tabla destino.
+      - fields_mapped_df (pd.DataFrame): DataFrame con columnas ["Campo Original", "Campo Formateado"].
+      - use_mapped_names (bool): Si True, usa nombres formateados.
+      - creation_date_field (str, opcional): Campo de fecha.
+      - use_date_range (bool): Si True, filtra por rango de fechas.
+      - date_range (dict, opcional): {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}.
+      - exclude_deleted_records_bool (bool): Si True, excluye registros marcados como borrados.
+      - exclude_deleted_records_field_name (str, opcional)
+      - exclude_deleted_records_field_value: Valor que indica borrado.
+
+    Retorna:
+        str: Sentencia SQL generada.
+    """
+    # Importar pandas para validar el DataFrame
+    import pandas as pd
+    print("[START ▶️] Generando vista BI...", flush=True)
+    table_source = params.get("table_source")
+    table_destination = params.get("table_destination")
+    fields_mapped_df = params.get("fields_mapped_df")
+    if not table_source or not table_destination or not isinstance(fields_mapped_df, pd.DataFrame):
+        raise ValueError("[VALIDATION [ERROR ❌]] Faltan parámetros obligatorios: 'table_source', 'table_destination' o 'fields_mapped_df'.")
+    
+    use_mapped_names = params.get("use_mapped_names", True)
+    creation_date_field = params.get("creation_date_field", "")
+    date_range = params.get("date_range", {})
+    use_date_range = params.get("use_date_range", False)
+    exclude_deleted_records_bool = params.get("exclude_deleted_records_bool", False)
+    exclude_deleted_records_field_name = params.get("exclude_deleted_records_field_name", "")
+    exclude_deleted_records_field_value = params.get("exclude_deleted_records_field_value", None)
+    
+    select_cols = []
+    for _, row in fields_mapped_df.iterrows():
+        original = row["Campo Original"]
+        mapped = row["Campo Formateado"]
+        if use_mapped_names:
+            select_cols.append(f"`{original}` AS `{mapped}`")
+        else:
+            select_cols.append(f"`{original}`")
+    select_clause = ",\n  ".join(select_cols)
+    
+    where_filters = []
+    if use_date_range and creation_date_field:
+        date_from = date_range.get("from", "")
+        date_to = date_range.get("to", "")
+        if date_from and date_to:
+            where_filters.append(f"`{creation_date_field}` BETWEEN '{date_from}' AND '{date_to}'")
+        elif date_from:
+            where_filters.append(f"`{creation_date_field}` >= '{date_from}'")
+        elif date_to:
+            where_filters.append(f"`{creation_date_field}` <= '{date_to}'")
+    if exclude_deleted_records_bool and exclude_deleted_records_field_name and exclude_deleted_records_field_value is not None:
+        where_filters.append(f"(`{exclude_deleted_records_field_name}` IS NULL OR `{exclude_deleted_records_field_name}` != {exclude_deleted_records_field_value})")
+    where_clause = " AND ".join(where_filters) if where_filters else "TRUE"
+    
+    sql_script = (
+        f"CREATE OR REPLACE VIEW `{table_destination}` AS\n"
+        f"SELECT\n"
+        f"  {select_clause}\n"
+        f"FROM `{table_source}`\n"
+        f"WHERE {where_clause}\n"
+        f";"
+    )
+    print("[END [FINISHED ✅]] Vista BI generada.\n", flush=True)
+    return sql_script
+
+
+
+
+
+
+
+
+# __________________________________________________________________________________________________________________________________________________________
+def SQL_generate_CPL_to_contacts_str(params: dict) -> str:
+    """
+    Genera una sentencia SQL para crear o reemplazar una tabla que combina datos de contactos, métricas agregadas y métricas publicitarias,
+    calculando indicadores como el CPL (costo por lead) a nivel de contacto.
+
+    Parámetros en params:
+      - table_destination (str): Tabla resultado.
+      - table_source (str): Tabla de contactos.
+      - table_aggregated (str): Tabla agregada de métricas.
+      - join_field (str): Campo de fecha para unión.
+      - join_on_source (str): Campo de fuente para unión.
+      - contact_creation_number (str): Campo que indica el número de contactos creados.
+      - ad_platforms (list): Lista de diccionarios con configuraciones de plataformas.
+
+    Retorna:
+        str: Sentencia SQL generada.
+    """
+    print("[START ▶️] Generando SQL para CPL a contacts...", flush=True)
+    table_destination = params["table_destination"]
+    table_source = params["table_source"]
+    table_aggregated = params["table_aggregated"]
+    join_field = params["join_field"]
+    join_on_source = params["join_on_source"]
+    contact_creation_number = params["contact_creation_number"]
+    ad_platforms = params["ad_platforms"]
+
+    from_clause = (
+        f"FROM `{table_source}` o\n"
+        f"LEFT JOIN `{table_aggregated}` a\n"
+        f"  ON DATE(o.{join_field}) = a.{join_field}\n"
+        f"  AND o.{join_on_source} = a.{join_on_source}\n"
+    )
+    joins = []
+    select_platform_metrics = []
+    for idx, plat in enumerate(ad_platforms, start=1):
+        alias = f"p{idx}"
+        prefix = plat["prefix"]
+        table = plat["table"]
+        date_field = plat["date_field"]
+        source_value = plat["source_value"]
+        joins.append(
+            f"LEFT JOIN `{table}` {alias}\n"
+            f"  ON a.{join_field} = {alias}.{date_field}\n"
+        )
+        for key, value in plat.items():
+            if key.startswith("total_"):
+                metric = key.replace("total_", "")
+                col_name = f"contact_Ads_{prefix}_{metric}_by_day"
+                expr = (
+                    f"CASE\n"
+                    f"  WHEN a.{join_on_source} = \"{source_value}\" AND a.{contact_creation_number} > 0\n"
+                    f"    THEN {alias}.{value} / a.{contact_creation_number}\n"
+                    f"  ELSE NULL\n"
+                    f"END AS {col_name}"
+                )
+                select_platform_metrics.append(expr)
+    final_select = ",\n".join(["o.*"] + select_platform_metrics)
+    join_clause = "".join(joins)
+    sql_script = (
+        f"CREATE OR REPLACE TABLE `{table_destination}` AS\n"
+        f"SELECT\n"
+        f"  {final_select}\n"
+        f"{from_clause}"
+        f"{join_clause}\n"
+        f";"
+    )
+    print("[END [FINISHED ✅]] SQL para CPL a contacts generado.\n", flush=True)
+    return sql_script
+
+
+
+
+
+
+
+
+
+
+
+
+
