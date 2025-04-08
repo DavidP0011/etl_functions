@@ -1,4 +1,4 @@
-from .dpm_GCP_ini_utils import _ini_authenticate_API
+from dpm_common_functions import _ini_authenticate_API
 
 
 
