@@ -23,6 +23,7 @@ def GBQ_delete_tables(config: dict) -> None:
       ValueError: Si faltan parámetros obligatorios o de autenticación.
       Exception: Si ocurre un error durante el proceso.
   """
+  import pandas as pd
   # ────────────────────────────── VALIDACIÓN DE PARÁMETROS ──────────────────────────────
   project_id_str = config.get('project_id')
   dataset_ids_list = config.get('dataset_ids')
