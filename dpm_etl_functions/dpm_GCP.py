@@ -1,3 +1,6 @@
+from .dpm_GCP_ini_utils import _ini_authenticate_API
+
+
 # __________________________________________________________________________________________________________________________________________________________
 def GBQ_tables_schema_df(config: dict) -> pd.DataFrame:
     """
